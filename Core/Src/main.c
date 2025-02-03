@@ -40,13 +40,31 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define SYSTICK_LOAD (SystemCoreClock/1000000U)
+#define SYSTICK_DELAY_CALIB (SYSTICK_LOAD >> 1)
 
+#define GATE_DRIVER_RESET_US 1
+
+#define USE_EMRAX_MOTOR
+// #define USE_AMK_MOTOR
+#ifdef USE_EMRAX_MOTOR
+#define N_STEP_ENCODER 8192
+#define N_POLES 10
+#endif
+#ifdef USE_AMK_MOTOR
+#define N_STEP_ENCODER 262144
+#define N_POLES 10
+#endif
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
-#define N_STEP_ENCODER 8192
-#define N_POLES 10
+#define DELAY_US(us) \
+  do { \
+    uint32_t delay_us_start = SysTick->VAL; \
+    uint32_t delay_us_ticks = (us * SYSTICK_LOAD)-SYSTICK_DELAY_CALIB;  \
+    while((delay_us_start - SysTick->VAL) < delay_us_ticks); \
+  } while (0)
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
@@ -67,7 +85,8 @@ uint16_t Encoder_os = 731; // encoder offset angle
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
-void print_CANBus(char* text);
+void printCANBus(char* text);
+void resetGateDriver();
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -145,25 +164,38 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+  uint16_t phys_position;
+  float elec_position;
+  
   while (1)
   {
     LL_mDelay(100);
     sprintf(printBuffer, "ADC1_1: %d, ADC1_2: %d, ADC1_3: %d, ADC2_5: %d, ", 
     adc_data[0], adc_data[1], adc_data[2], adc_data[3]);
-    print_CANBus(printBuffer);
+    printCANBus(printBuffer);
 
-    // read motor position
-    uint16_t phys_position;
-    float elec_position;
+    #ifdef USE_EMRAX_MOTOR
+    // read motor position (RM44SI encoder)
     uint8_t TxBuffer[2];
     uint8_t RxBuffer[2];
     HAL_SPI_TransmitReceive(&hspi1, TxBuffer, RxBuffer, 1, 5000);
     memcpy(&phys_position, RxBuffer, 2);
     phys_position = (phys_position & 0x7FFF) >> 2;
+    #endif
+    #ifdef USE_AMK_MOTOR
+    // read motor position (AMK type-P encoder)
+    // TODO
+    #endif
+
     sprintf(printBuffer, "phys_position: %d\n", phys_position);
-    print_CANBus(printBuffer);
+    printCANBus(printBuffer);
     phys_position += Encoder_os;
     elec_position = fmodf(phys_position / N_STEP_ENCODER * N_POLES, 1.0f) * M_PI * 2.0f; // radians
+
+    // read gate driver status (FLT and RDY pins)
+    uint32_t PORTA = LL_GPIO_ReadInputPort(GPIOA);
+    uint32_t PORTB = LL_GPIO_ReadInputPort(GPIOB);
+    uint32_t PORTC = LL_GPIO_ReadInputPort(GPIOC);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -221,7 +253,13 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
-void print_CANBus(char* text) {
+void resetGateDriver() {
+  LL_GPIO_ResetOutputPin(GPIOC, LL_GPIO_PIN_12);
+  DELAY_US(GATE_DRIVER_RESET_US);
+  LL_GPIO_SetOutputPin(GPIOC, LL_GPIO_PIN_12);
+}
+
+void printCANBus(char* text) {
   TxHeader.Identifier = 0x3FF;
   TxHeader.IdType = FDCAN_STANDARD_ID;
   TxHeader.TxFrameType = FDCAN_DATA_FRAME;
