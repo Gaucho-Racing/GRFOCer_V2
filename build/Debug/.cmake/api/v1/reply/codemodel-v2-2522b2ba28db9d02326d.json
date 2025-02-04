@@ -66,7 +66,7 @@
 				{
 					"directoryIndex" : 0,
 					"id" : "FirmwareVer2A::@6890427a1f51a3e7e1df",
-					"jsonFile" : "target-FirmwareVer2A-Debug-deb0caa5a5cc2313b02d.json",
+					"jsonFile" : "target-FirmwareVer2A-Debug-999e508d3627e4bd4129.json",
 					"name" : "FirmwareVer2A",
 					"projectIndex" : 0
 				}
@@ -76,8 +76,8 @@
 	"kind" : "codemodel",
 	"paths" : 
 	{
-		"build" : "C:/SynologyDrive/University/GauchoRacing/GR25/MotorController/FirmwareVer2A/build/Debug",
-		"source" : "C:/SynologyDrive/University/GauchoRacing/GR25/MotorController/FirmwareVer2A"
+		"build" : "C:/Users/davor/SynologyDrive/SynologyDrive/University/GauchoRacing/GR25/MotorController/FirmwareVer2A/build/Debug",
+		"source" : "C:/Users/davor/SynologyDrive/SynologyDrive/University/GauchoRacing/GR25/MotorController/FirmwareVer2A"
 	},
 	"version" : 
 	{

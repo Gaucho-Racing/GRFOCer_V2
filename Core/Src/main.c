@@ -31,6 +31,7 @@
 #include <stdio.h>
 #include <math.h>
 #include <string.h>
+#include "PID.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -50,10 +51,12 @@
 #ifdef USE_EMRAX_MOTOR
 #define N_STEP_ENCODER 8192
 #define N_POLES 10
+#define MOTOR_TEMP_SENSE_CURRENT 0.001f
 #endif
 #ifdef USE_AMK_MOTOR
 #define N_STEP_ENCODER 262144
 #define N_POLES 10
+#define MOTOR_TEMP_SENSE_CURRENT 0.002f
 #endif
 /* USER CODE END PD */
 
@@ -65,12 +68,26 @@
     uint32_t delay_us_ticks = (us * SYSTICK_LOAD)-SYSTICK_DELAY_CALIB;  \
     while((delay_us_start - SysTick->VAL) < delay_us_ticks); \
   } while (0)
+
+// Gate driver ready and !fault signals
+#define DRV_RDY_UH ((GPIOC->IDR&(1U<<11))!=0)
+#define DRV_FLT_UH ((GPIOC->IDR&(1U<<10))!=0)
+#define DRV_RDY_UL ((GPIOA->IDR&(1U<<15))!=0)
+#define DRV_FLT_UL ((GPIOA->IDR&(1U<<12))!=0)
+#define DRV_RDY_VH ((GPIOA->IDR&(1U<<8))!=0)
+#define DRV_FLT_VH ((GPIOC->IDR&(1U<<9))!=0)
+#define DRV_RDY_VL ((GPIOC->IDR&(1U<<8))!=0)
+#define DRV_FLT_VL ((GPIOB->IDR&(1U<<15))!=0)
+#define DRV_RDY_WH ((GPIOB->IDR&(1U<<11))!=0)
+#define DRV_FLT_WH ((GPIOB->IDR&(1U))!=0)
+#define DRV_RDY_WL ((GPIOB->IDR&(1U<<1))!=0)
+#define DRV_FLT_WL ((GPIOB->IDR&(1U<<10))!=0)
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-uint16_t adc_data[4];
+int16_t adc_data[4];
 
 FDCAN_RxHeaderTypeDef RxHeader;
 uint8_t RxData[8];
@@ -79,7 +96,20 @@ uint8_t TxData[8];
 
 char printBuffer[1024];
 
+#ifdef USE_EMRAX_MOTOR
 uint16_t Encoder_os = 731; // encoder offset angle
+uint16_t KTY_LookupR[] = {980,1030,1135,1247,1367,1495,1630,1772,1922,2000,2080,2245,2417,2597,2785,2980,3182,3392,3607,3817,3915,4008,4166,4280};
+int16_t KTY_LookupT[] = {-55,-50,-40,-30,-20,-10,0,10,20,25,30,40,50,60,70,80,90,100,110,120,125,130,140,150};
+uint16_t KTY_LookupSize = 24;
+#endif
+#ifdef USE_AMK_MOTOR
+uint16_t Encoder_os = 0; // TODO
+uint16_t KTY_LookupR[] = {359,391,424,460,498,538,581,603,626,672,722,773,826,882,940,1000,1062,1127,1194,1262,1334,1407,1482,1560,1640,1722,1807,1893,1982,2073,2166,2261,2357,2452,2542,2624};
+int16_t KTY_LookupT[] = {-40,-30,-20,-10,0,10,20,25,30,40,50,60,70,80,90,100,110,120,130,140,150,160,170,180,190,200,210,220,230,240,250,260,270,280,290,300};
+uint16_t KTY_LookupSize = 36;
+#endif
+
+PID PID_I_d, PID_I_q;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -87,6 +117,7 @@ void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
 void printCANBus(char* text);
 void resetGateDriver();
+void disableGateDriver();
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -135,7 +166,7 @@ int main(void)
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
   // Enable microsecond counter
-  LL_TIM_EnableCounter(TIM5);
+  LL_TIM_EnableCounter(TIM2);
 
   // encoder setup (Emrax motor)
   LL_GPIO_ResetOutputPin(GPIOA, LL_GPIO_PIN_4); // data port input mode
@@ -164,12 +195,35 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  uint16_t phys_position;
-  float elec_position;
+  // Motor variables
+  uint16_t motor_PhysPosition;
+  float motor_ElecPosition;
+  float U_current, V_current, W_current;
+  
+  // Gate driver variables
+  // format: |NA|NA|UH|UL|VH|VL|WH|WL|
+  uint8_t driver_RDY = 0;
+  uint8_t driver_OK = 0;
+
+  // timing stuff
+  uint32_t micros = TIM2->CNT;
+  uint32_t lastMicros = 0;
+  float dt = (micros - lastMicros) * 1e-6f;
+
+  // requests
+  float TargetCurrent = 1.0f;
   
   while (1)
   {
     LL_mDelay(100);
+    micros = TIM2->CNT;
+    dt = (micros - lastMicros) * 1e-6f;
+
+    // convert ADC values to phase current and motor temperature
+    U_current = (adc_data[0] - 2500) / 13.33f;
+    V_current = (adc_data[1] - 2500) / 13.33f;
+    W_current = (adc_data[2] - 2500) / 13.33f;
+    float KTY_Resistance = (adc_data[3] << 1) * MOTOR_TEMP_SENSE_CURRENT;
     sprintf(printBuffer, "ADC1_1: %d, ADC1_2: %d, ADC1_3: %d, ADC2_5: %d, ", 
     adc_data[0], adc_data[1], adc_data[2], adc_data[3]);
     printCANBus(printBuffer);
@@ -179,23 +233,52 @@ int main(void)
     uint8_t TxBuffer[2];
     uint8_t RxBuffer[2];
     HAL_SPI_TransmitReceive(&hspi1, TxBuffer, RxBuffer, 1, 5000);
-    memcpy(&phys_position, RxBuffer, 2);
-    phys_position = (phys_position & 0x7FFF) >> 2;
+    memcpy(&motor_PhysPosition, RxBuffer, 2);
+    motor_PhysPosition = (motor_PhysPosition & 0x7FFF) >> 2;
     #endif
     #ifdef USE_AMK_MOTOR
     // read motor position (AMK type-P encoder)
     // TODO
     #endif
 
-    sprintf(printBuffer, "phys_position: %d\n", phys_position);
+    sprintf(printBuffer, "motor_PhysPosition: %u\n", motor_PhysPosition);
     printCANBus(printBuffer);
-    phys_position += Encoder_os;
-    elec_position = fmodf(phys_position / N_STEP_ENCODER * N_POLES, 1.0f) * M_PI * 2.0f; // radians
+    motor_PhysPosition += Encoder_os;
+    motor_ElecPosition = fmodf(motor_PhysPosition / N_STEP_ENCODER * N_POLES, 1.0f) * M_PI * 2.0f; // radians
 
     // read gate driver status (FLT and RDY pins)
-    uint32_t PORTA = LL_GPIO_ReadInputPort(GPIOA);
-    uint32_t PORTB = LL_GPIO_ReadInputPort(GPIOB);
-    uint32_t PORTC = LL_GPIO_ReadInputPort(GPIOC);
+    driver_RDY = (DRV_RDY_UH<<5) | (DRV_RDY_UL<<4) | (DRV_RDY_VH<<3) | (DRV_RDY_VL<<2) | (DRV_RDY_WH<<1) | DRV_RDY_WL;
+    driver_OK  = (DRV_FLT_UH<<5) | (DRV_FLT_UL<<4) | (DRV_FLT_VH<<3) | (DRV_FLT_VL<<2) | (DRV_FLT_WH<<1) | DRV_FLT_WL;
+    if ((driver_RDY | driver_OK) != 63){ // 0b00111111
+      disableGateDriver();
+    }
+    sprintf(printBuffer, "driver_RDY: %u driver_OK: %u\n", driver_RDY, driver_OK);
+    printCANBus(printBuffer);
+
+    // FOC
+    float sin_elec_position = sinf(motor_ElecPosition);
+    float cos_elec_position = cosf(motor_ElecPosition);
+    // Clarke transform
+    float I_a = U_current * 0.66666667f - V_current * 0.33333333f - W_current * 0.33333333f;
+    float I_b = 0.5773502691896257f * (V_current - W_current);
+    // Park transform
+    float I_d = I_a * cos_elec_position + I_b * sin_elec_position;
+    float I_q = I_b * cos_elec_position - I_a * sin_elec_position;
+    // PI controllers on Q and D
+    float cmd_d = 0;//PID_update(&PID_I_d, I_d, 0.0f, dt) * 0.1f;
+    float cmd_q = PID_update(&PID_I_q, I_q, TargetCurrent, dt);
+    // Inverse Park transform
+    float cmd_a = cmd_d * cos_elec_position - cmd_q * sin_elec_position;
+    float cmd_b = cmd_q * cos_elec_position + cmd_d * sin_elec_position;
+    // Inverse Clarke transform
+    int16_t duty_u = cmd_a * -32000;
+    int16_t duty_v = (cmd_a * -0.5f + 0.8660254037844386f * cmd_b) * -32000;
+    int16_t duty_w = (cmd_a * -0.5f - 0.8660254037844386f * cmd_b) * -32000;
+    // Update duty cycle
+    // writePwm(U_TIMER, duty_u);
+    // writePwm(V_TIMER, duty_v);
+    // writePwm(W_TIMER, duty_w);
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -257,6 +340,10 @@ void resetGateDriver() {
   LL_GPIO_ResetOutputPin(GPIOC, LL_GPIO_PIN_12);
   DELAY_US(GATE_DRIVER_RESET_US);
   LL_GPIO_SetOutputPin(GPIOC, LL_GPIO_PIN_12);
+}
+
+void disableGateDriver() {
+  LL_GPIO_ResetOutputPin(GPIOC, LL_GPIO_PIN_12);
 }
 
 void printCANBus(char* text) {

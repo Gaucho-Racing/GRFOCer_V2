@@ -7,7 +7,7 @@
         {
             "name": "Cortex Debug",
             "cwd": "${workspaceFolder}",
-            "executable": "./build/Debug/Firmware.elf",
+            "executable": "./build/Debug/FirmwareVer2A.elf",
             "request": "launch",
             "type": "cortex-debug",
             "runToEntryPoint": "main",
