@@ -22,6 +22,7 @@
 #include "dma.h"
 #include "fdcan.h"
 #include "hrtim.h"
+#include "usart.h"
 #include "spi.h"
 #include "tim.h"
 #include "gpio.h"
@@ -44,19 +45,23 @@
 #define SYSTICK_LOAD (SystemCoreClock/1000000U)
 #define SYSTICK_DELAY_CALIB (SYSTICK_LOAD >> 1)
 
-#define GATE_DRIVER_RESET_US 1
+#define U_TIMER LL_HRTIM_TIMER_B
+#define V_TIMER LL_HRTIM_TIMER_F
+#define W_TIMER LL_HRTIM_TIMER_C
 
-#define USE_EMRAX_MOTOR
-// #define USE_AMK_MOTOR
+#define GATE_DRIVER_RESET_US 1U
+#define deadTime 640
+
+// #define USE_EMRAX_MOTOR
+#define USE_AMK_MOTOR
+
 #ifdef USE_EMRAX_MOTOR
-#define N_STEP_ENCODER 8192
+#define N_STEP_ENCODER 8192U
 #define N_POLES 10
-#define MOTOR_TEMP_SENSE_CURRENT 0.001f
 #endif
 #ifdef USE_AMK_MOTOR
-#define N_STEP_ENCODER 262144
-#define N_POLES 10
-#define MOTOR_TEMP_SENSE_CURRENT 0.002f
+#define N_STEP_ENCODER 262144U
+#define N_POLES 10U
 #endif
 /* USER CODE END PD */
 
@@ -64,10 +69,14 @@
 /* USER CODE BEGIN PM */
 #define DELAY_US(us) \
   do { \
-    uint32_t delay_us_start = SysTick->VAL; \
-    uint32_t delay_us_ticks = (us * SYSTICK_LOAD)-SYSTICK_DELAY_CALIB;  \
-    while((delay_us_start - SysTick->VAL) < delay_us_ticks); \
+    uint32_t clk_cycle_start = DWT->CYCCNT;\
+    uint32_t clk_cycles = (SystemCoreClock / 1000000U) * us;\
+    while ((DWT->CYCCNT - clk_cycle_start) < clk_cycles);\
   } while (0)
+
+#define ENDAT_DIR_WRITE LL_GPIO_SetOutputPin(GPIOA, LL_GPIO_PIN_4)
+
+#define ENDAT_DIR_Read LL_GPIO_ResetOutputPin(GPIOA, LL_GPIO_PIN_4)
 
 // Gate driver ready and !fault signals
 #define DRV_RDY_UH ((GPIOC->IDR&(1U<<11))!=0)
@@ -104,7 +113,7 @@ uint16_t KTY_LookupSize = 24;
 #endif
 #ifdef USE_AMK_MOTOR
 uint16_t Encoder_os = 0; // TODO
-uint16_t KTY_LookupR[] = {359,391,424,460,498,538,581,603,626,672,722,773,826,882,940,1000,1062,1127,1194,1262,1334,1407,1482,1560,1640,1722,1807,1893,1982,2073,2166,2261,2357,2452,2542,2624};
+int16_t KTY_LookupR[] = {359,391,424,460,498,538,581,603,626,672,722,773,826,882,940,1000,1062,1127,1194,1262,1334,1407,1482,1560,1640,1722,1807,1893,1982,2073,2166,2261,2357,2452,2542,2624};
 int16_t KTY_LookupT[] = {-40,-30,-20,-10,0,10,20,25,30,40,50,60,70,80,90,100,110,120,130,140,150,160,170,180,190,200,210,220,230,240,250,260,270,280,290,300};
 uint16_t KTY_LookupSize = 36;
 #endif
@@ -118,6 +127,8 @@ void SystemClock_Config(void);
 void printCANBus(char* text);
 void resetGateDriver();
 void disableGateDriver();
+void writePwm(uint32_t timer, int32_t duty);
+int16_t lookupTbl(int16_t* source, int16_t* target);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -164,12 +175,19 @@ int main(void)
   MX_TIM5_Init();
   MX_TIM15_Init();
   MX_TIM2_Init();
+  MX_LPUART1_UART_Init();
   /* USER CODE BEGIN 2 */
+  // Init DWT delay
+  CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+  DWT->CYCCNT = 0;  // Reset counter
+  DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+
   // Enable microsecond counter
   LL_TIM_EnableCounter(TIM2);
 
   // encoder setup (Emrax motor)
-  LL_GPIO_ResetOutputPin(GPIOA, LL_GPIO_PIN_4); // data port input mode
+  ENDAT_DIR_Read;
+  LL_SPI_Enable(SPI1);
 
   // Enable ADC1 (phase current sensors) with DMA
   LL_ADC_Enable(ADC1);
@@ -196,7 +214,7 @@ int main(void)
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   // Motor variables
-  uint16_t motor_PhysPosition;
+  uint32_t motor_PhysPosition;
   float motor_ElecPosition;
   float U_current, V_current, W_current;
   
@@ -223,26 +241,113 @@ int main(void)
     U_current = (adc_data[0] - 2500) / 13.33f;
     V_current = (adc_data[1] - 2500) / 13.33f;
     W_current = (adc_data[2] - 2500) / 13.33f;
-    float KTY_Resistance = (adc_data[3] << 1) * MOTOR_TEMP_SENSE_CURRENT;
-    sprintf(printBuffer, "ADC1_1: %d, ADC1_2: %d, ADC1_3: %d, ADC2_5: %d, ", 
-    adc_data[0], adc_data[1], adc_data[2], adc_data[3]);
-    printCANBus(printBuffer);
+    int16_t KTY_Resistance = adc_data[3] >> 1;
 
     #ifdef USE_EMRAX_MOTOR
     // read motor position (RM44SI encoder)
-    uint8_t TxBuffer[2];
-    uint8_t RxBuffer[2];
-    HAL_SPI_TransmitReceive(&hspi1, TxBuffer, RxBuffer, 1, 5000);
-    memcpy(&motor_PhysPosition, RxBuffer, 2);
+    LL_SPI_TransmitData16(SPI1, 0);
+    uint32_t startTime = TIM2->CNT;
+    while (!LL_SPI_IsActiveFlag_RXNE(SPI1)) {
+      if (TIM2->CNT - startTime > 10000U) break;
+    }
+    motor_PhysPosition = LL_SPI_ReceiveData16(SPI1);
     motor_PhysPosition = (motor_PhysPosition & 0x7FFF) >> 2;
     #endif
     #ifdef USE_AMK_MOTOR
     // read motor position (AMK type-P encoder)
-    // TODO
+
+    uint32_t data = 0U;
+    uint8_t transferCount = 1U;
+    uint32_t buf;
+    uint8_t ones = 0xFEU;
+    uint8_t bitCount = 0U;
+
+    while (LL_SPI_IsActiveFlag_RXNE(SPI1)) LL_SPI_ReceiveData8(SPI1); // clear SPI buffer
+    LL_SPI_Disable(SPI1);
+    ENDAT_DIR_WRITE;
+    LL_SPI_SetClockPhase(SPI1, LL_SPI_PHASE_1EDGE);
+    LL_SPI_SetDataWidth(SPI1, LL_SPI_DATAWIDTH_10BIT);
+    LL_SPI_SetRxFIFOThreshold(SPI1, LL_SPI_RX_FIFO_TH_HALF);
+    LL_SPI_Enable(SPI1);
+    LL_SPI_TransmitData16(SPI1, 0b1000011101U); // send mode 1: Encoder send position values
+    uint32_t startTime = TIM2->CNT;
+    while (!LL_SPI_IsActiveFlag_RXNE(SPI1)){
+      if (TIM2->CNT - startTime > 20U) {
+        printCANBus("timeout 1\n");
+        break;
+      }
+    }
+    LL_SPI_ReceiveData16(SPI1);
+    ENDAT_DIR_Read;
+    LL_SPI_Disable(SPI1);
+    LL_SPI_SetClockPhase(SPI1, LL_SPI_PHASE_2EDGE);
+    LL_SPI_SetDataWidth(SPI1, LL_SPI_DATAWIDTH_8BIT);
+    LL_SPI_SetRxFIFOThreshold(SPI1, LL_SPI_RX_FIFO_TH_QUARTER);
+    LL_SPI_Enable(SPI1);
+    while (data == 0) { // wait for encoder to respond
+      if (transferCount > 5) {
+        //printCANBus("timeout 2t\n");
+        data = 1U;
+        break;
+      }
+      LL_SPI_TransmitData8(SPI1, 0U);
+      startTime = TIM2->CNT;
+      while (!LL_SPI_IsActiveFlag_RXNE(SPI1)) {
+        if (TIM2->CNT - startTime > 16U) {
+          printCANBus("timeout 2");
+          break;
+        }
+      }
+      LL_SPI_ReceiveData8(SPI1);
+      // sprintf(printBuffer, "data=%lu\n", data);
+      // printCANBus(printBuffer);
+      transferCount++;
+    }
+    while (data & ones) {
+      bitCount++;
+      ones = ones << 1;
+    }
+
+    buf = data << (25 - bitCount);
+    LL_SPI_Disable(SPI1);
+    LL_SPI_SetDataWidth(SPI1, LL_SPI_DATAWIDTH_10BIT);
+    LL_SPI_SetRxFIFOThreshold(SPI1, LL_SPI_RX_FIFO_TH_HALF);
+    LL_SPI_Enable(SPI1);
+    LL_SPI_TransmitData16(SPI1, 0U);
+    startTime = TIM2->CNT;
+    while (!LL_SPI_IsActiveFlag_RXNE(SPI1)){
+      if (TIM2->CNT - startTime > 20U) {
+        printCANBus("timeout 3\n");
+        break;
+      }
+    }
+    data = LL_SPI_ReceiveData16(SPI1);
+    buf |= data << (15 - bitCount);
+
+    LL_SPI_Disable(SPI1);
+    LL_SPI_SetDataWidth(SPI1, (14 - bitCount) << 8);
+    LL_SPI_SetRxFIFOThreshold(SPI1, (14 - bitCount < 9) ? LL_SPI_RX_FIFO_TH_QUARTER : LL_SPI_RX_FIFO_TH_HALF);
+    LL_SPI_Enable(SPI1);
+    if (15 - bitCount < 9) {
+      LL_SPI_TransmitData8(SPI1, 0);
+    }
+    else {
+      LL_SPI_TransmitData16(SPI1, 0);
+    }
+    startTime = TIM2->CNT;
+    while (!LL_SPI_IsActiveFlag_RXNE(SPI1)){
+      if (TIM2->CNT - startTime > 32U) {
+        printCANBus("timeout 4\n");
+        break;
+      }
+    }
+    data = LL_SPI_ReceiveData16(SPI1);
+    buf |= data;
+
+    motor_PhysPosition = (buf >> 5U) & (N_STEP_ENCODER-1);
     #endif
 
-    sprintf(printBuffer, "motor_PhysPosition: %u\n", motor_PhysPosition);
-    printCANBus(printBuffer);
+
     motor_PhysPosition += Encoder_os;
     motor_ElecPosition = fmodf(motor_PhysPosition / N_STEP_ENCODER * N_POLES, 1.0f) * M_PI * 2.0f; // radians
 
@@ -252,8 +357,6 @@ int main(void)
     if ((driver_RDY | driver_OK) != 63){ // 0b00111111
       disableGateDriver();
     }
-    sprintf(printBuffer, "driver_RDY: %u driver_OK: %u\n", driver_RDY, driver_OK);
-    printCANBus(printBuffer);
 
     // FOC
     float sin_elec_position = sinf(motor_ElecPosition);
@@ -265,23 +368,30 @@ int main(void)
     float I_d = I_a * cos_elec_position + I_b * sin_elec_position;
     float I_q = I_b * cos_elec_position - I_a * sin_elec_position;
     // PI controllers on Q and D
-    float cmd_d = 0;//PID_update(&PID_I_d, I_d, 0.0f, dt) * 0.1f;
+    float cmd_d = PID_update(&PID_I_d, I_d, 0.0f, dt);
     float cmd_q = PID_update(&PID_I_q, I_q, TargetCurrent, dt);
     // Inverse Park transform
     float cmd_a = cmd_d * cos_elec_position - cmd_q * sin_elec_position;
     float cmd_b = cmd_q * cos_elec_position + cmd_d * sin_elec_position;
     // Inverse Clarke transform
-    int16_t duty_u = cmd_a * -32000;
-    int16_t duty_v = (cmd_a * -0.5f + 0.8660254037844386f * cmd_b) * -32000;
-    int16_t duty_w = (cmd_a * -0.5f - 0.8660254037844386f * cmd_b) * -32000;
+    int16_t duty_u = cmd_a * 64000;
+    int16_t duty_v = (cmd_a * -0.5f + 0.8660254037844386f * cmd_b) * 64000;
+    int16_t duty_w = (cmd_a * -0.5f - 0.8660254037844386f * cmd_b) * 64000;
     // Update duty cycle
-    // writePwm(U_TIMER, duty_u);
-    // writePwm(V_TIMER, duty_v);
-    // writePwm(W_TIMER, duty_w);
+    writePwm(U_TIMER, duty_u);
+    writePwm(V_TIMER, duty_v);
+    writePwm(W_TIMER, duty_w);
 
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+    sprintf(printBuffer, "ADC1_1: %d, ADC1_2: %d, ADC1_3: %d, ADC2_5: %d, ", 
+    adc_data[0], adc_data[1], adc_data[2], adc_data[3]);
+    printCANBus(printBuffer);
+    sprintf(printBuffer, "motor_PhysPosition: %lu\n", motor_PhysPosition);
+    printCANBus(printBuffer);
+    sprintf(printBuffer, "driver_RDY: %u driver_OK: %u\n", driver_RDY, driver_OK);
+    printCANBus(printBuffer);
   }
   /* USER CODE END 3 */
 }
@@ -373,6 +483,30 @@ void printCANBus(char* text) {
     HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan2, &TxHeader, TxData);
   }
 }
+
+void writePwm(uint32_t timer, int32_t duty) {
+  // single sided
+  if (duty < deadTime && duty > -deadTime) {
+    duty = 0;
+  }
+  else if (duty > 64000 - deadTime) {
+    duty = 64000;
+  }
+  else if (duty < deadTime - 64000) {
+    duty = -64000;
+  }
+
+  if (duty > 0) {
+    LL_HRTIM_TIM_SetCompare1(HRTIM1, timer, duty);
+    LL_HRTIM_TIM_SetCompare3(HRTIM1, timer, 0);
+  }
+  else {
+    LL_HRTIM_TIM_SetCompare1(HRTIM1, timer, 0);
+    LL_HRTIM_TIM_SetCompare3(HRTIM1, timer, duty);
+  }
+  return;
+}
+
 /* USER CODE END 4 */
 
 /**
