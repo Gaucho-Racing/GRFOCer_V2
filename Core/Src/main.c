@@ -37,13 +37,19 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-
+typedef struct {
+  float duty_u;
+  float duty_v;
+  float duty_w;
+} SVPWM_DutyCycles;
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define SYSTICK_LOAD (SystemCoreClock/1000000U)
 #define SYSTICK_DELAY_CALIB (SYSTICK_LOAD >> 1)
+
+#define PI M_PI
 
 #define U_TIMER LL_HRTIM_TIMER_B
 #define V_TIMER LL_HRTIM_TIMER_F
@@ -57,11 +63,11 @@
 
 #ifdef USE_EMRAX_MOTOR
 #define N_STEP_ENCODER 8192U
-#define N_POLES 10
+#define N_POLES 10U
 #endif
 #ifdef USE_AMK_MOTOR
-#define N_STEP_ENCODER 262144U
-#define N_POLES 10U
+#define N_STEP_ENCODER 262144UL
+#define N_POLES 5U
 #endif
 /* USER CODE END PD */
 
@@ -106,13 +112,13 @@ uint8_t TxData[8];
 char printBuffer[1024];
 
 #ifdef USE_EMRAX_MOTOR
-uint16_t Encoder_os = 731; // encoder offset angle
+uint32_t Encoder_os = 731; // encoder offset angle
 uint16_t KTY_LookupR[] = {980,1030,1135,1247,1367,1495,1630,1772,1922,2000,2080,2245,2417,2597,2785,2980,3182,3392,3607,3817,3915,4008,4166,4280};
 int16_t KTY_LookupT[] = {-55,-50,-40,-30,-20,-10,0,10,20,25,30,40,50,60,70,80,90,100,110,120,125,130,140,150};
 uint16_t KTY_LookupSize = 24;
 #endif
 #ifdef USE_AMK_MOTOR
-uint16_t Encoder_os = 0; // TODO
+uint32_t Encoder_os = 40000; // TODO
 int16_t KTY_LookupR[] = {359,391,424,460,498,538,581,603,626,672,722,773,826,882,940,1000,1062,1127,1194,1262,1334,1407,1482,1560,1640,1722,1807,1893,1982,2073,2166,2261,2357,2452,2542,2624};
 int16_t KTY_LookupT[] = {-40,-30,-20,-10,0,10,20,25,30,40,50,60,70,80,90,100,110,120,130,140,150,160,170,180,190,200,210,220,230,240,250,260,270,280,290,300};
 uint16_t KTY_LookupSize = 36;
@@ -128,7 +134,8 @@ void printCANBus(char* text);
 void resetGateDriver();
 void disableGateDriver();
 void writePwm(uint32_t timer, int32_t duty);
-int16_t lookupTbl(int16_t* source, int16_t* target);
+int16_t lookupTbl(int16_t* source, int16_t* target); //TODO
+void calculate_SVPWM(float v_alpha, float v_beta, SVPWM_DutyCycles *duty_cycles);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -209,6 +216,16 @@ int main(void)
 
   // CANbus setup
   HAL_FDCAN_Start(&hfdcan2);
+
+  // Enable HRTIM (gate drive signals)
+  writePwm(U_TIMER, 0);
+  writePwm(V_TIMER, 0);
+  writePwm(W_TIMER, 0);
+  LL_HRTIM_EnableOutput(HRTIM1, 
+  LL_HRTIM_OUTPUT_TB1|LL_HRTIM_OUTPUT_TB2|
+  LL_HRTIM_OUTPUT_TF1|LL_HRTIM_OUTPUT_TF2|
+  LL_HRTIM_OUTPUT_TC1|LL_HRTIM_OUTPUT_TC2);
+  LL_HRTIM_TIM_CounterEnable(HRTIM1, LL_HRTIM_TIMER_MASTER|U_TIMER|V_TIMER|W_TIMER);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -217,11 +234,14 @@ int main(void)
   uint32_t motor_PhysPosition;
   float motor_ElecPosition;
   float U_current, V_current, W_current;
+  PID_setParams(&PID_I_q, 0.0f, 0.01f, 0.0f);
+  PID_setParams(&PID_I_d, 0.0f, 0.01f, 0.0f);
   
   // Gate driver variables
   // format: |NA|NA|UH|UL|VH|VL|WH|WL|
   uint8_t driver_RDY = 0;
   uint8_t driver_OK = 0;
+  resetGateDriver();
 
   // timing stuff
   uint32_t micros = TIM2->CNT;
@@ -229,18 +249,19 @@ int main(void)
   float dt = (micros - lastMicros) * 1e-6f;
 
   // requests
-  float TargetCurrent = 1.0f;
+  float TargetCurrent = 2.0f;
   
   while (1)
   {
-    LL_mDelay(100);
+    LL_mDelay(50);
+    lastMicros = micros;
     micros = TIM2->CNT;
     dt = (micros - lastMicros) * 1e-6f;
 
     // convert ADC values to phase current and motor temperature
-    U_current = (adc_data[0] - 2500) / 13.33f;
-    V_current = (adc_data[1] - 2500) / 13.33f;
-    W_current = (adc_data[2] - 2500) / 13.33f;
+    U_current = (adc_data[0] - 2018) / 13.33f;
+    V_current = (adc_data[1] - 2015) / 13.33f;
+    W_current = (adc_data[2] - 2007) / 13.33f;
     int16_t KTY_Resistance = adc_data[3] >> 1;
 
     #ifdef USE_EMRAX_MOTOR
@@ -255,23 +276,18 @@ int main(void)
     #endif
     #ifdef USE_AMK_MOTOR
     // read motor position (AMK type-P encoder)
-
-    uint32_t data = 0U;
-    uint8_t transferCount = 1U;
-    uint32_t buf;
-    uint8_t ones = 0xFEU;
-    uint8_t bitCount = 0U;
-
+    uint32_t buf = 0U;
+    ENDAT_DIR_WRITE;
     while (LL_SPI_IsActiveFlag_RXNE(SPI1)) LL_SPI_ReceiveData8(SPI1); // clear SPI buffer
     LL_SPI_Disable(SPI1);
-    ENDAT_DIR_WRITE;
-    LL_SPI_SetClockPhase(SPI1, LL_SPI_PHASE_1EDGE);
     LL_SPI_SetDataWidth(SPI1, LL_SPI_DATAWIDTH_10BIT);
     LL_SPI_SetRxFIFOThreshold(SPI1, LL_SPI_RX_FIFO_TH_HALF);
+    LL_SPI_SetTransferBitOrder(SPI1, LL_SPI_MSB_FIRST);
+    LL_SPI_SetClockPhase(SPI1, LL_SPI_PHASE_2EDGE);
     LL_SPI_Enable(SPI1);
-    LL_SPI_TransmitData16(SPI1, 0b1000011101U); // send mode 1: Encoder send position values
+    LL_SPI_TransmitData16(SPI1, 0b0000011100U); // send mode 1: Encoder send position values
     uint32_t startTime = TIM2->CNT;
-    while (!LL_SPI_IsActiveFlag_RXNE(SPI1)){
+    while (LL_SPI_IsActiveFlag_BSY(SPI1)){
       if (TIM2->CNT - startTime > 20U) {
         printCANBus("timeout 1\n");
         break;
@@ -280,81 +296,27 @@ int main(void)
     LL_SPI_ReceiveData16(SPI1);
     ENDAT_DIR_Read;
     LL_SPI_Disable(SPI1);
-    LL_SPI_SetClockPhase(SPI1, LL_SPI_PHASE_2EDGE);
-    LL_SPI_SetDataWidth(SPI1, LL_SPI_DATAWIDTH_8BIT);
-    LL_SPI_SetRxFIFOThreshold(SPI1, LL_SPI_RX_FIFO_TH_QUARTER);
+    LL_SPI_SetDataWidth(SPI1, LL_SPI_DATAWIDTH_16BIT);
+    LL_SPI_SetTransferBitOrder(SPI1, LL_SPI_LSB_FIRST);
+    LL_SPI_SetClockPhase(SPI1, LL_SPI_PHASE_1EDGE);
     LL_SPI_Enable(SPI1);
-    while (data == 0) { // wait for encoder to respond
-      if (transferCount > 5) {
-        //printCANBus("timeout 2t\n");
-        data = 1U;
-        break;
-      }
-      LL_SPI_TransmitData8(SPI1, 0U);
-      startTime = TIM2->CNT;
-      while (!LL_SPI_IsActiveFlag_RXNE(SPI1)) {
-        if (TIM2->CNT - startTime > 16U) {
-          printCANBus("timeout 2");
-          break;
-        }
-      }
-      LL_SPI_ReceiveData8(SPI1);
-      // sprintf(printBuffer, "data=%lu\n", data);
-      // printCANBus(printBuffer);
-      transferCount++;
-    }
-    while (data & ones) {
-      bitCount++;
-      ones = ones << 1;
-    }
-
-    buf = data << (25 - bitCount);
-    LL_SPI_Disable(SPI1);
-    LL_SPI_SetDataWidth(SPI1, LL_SPI_DATAWIDTH_10BIT);
-    LL_SPI_SetRxFIFOThreshold(SPI1, LL_SPI_RX_FIFO_TH_HALF);
-    LL_SPI_Enable(SPI1);
-    LL_SPI_TransmitData16(SPI1, 0U);
-    startTime = TIM2->CNT;
-    while (!LL_SPI_IsActiveFlag_RXNE(SPI1)){
-      if (TIM2->CNT - startTime > 20U) {
-        printCANBus("timeout 3\n");
-        break;
-      }
-    }
-    data = LL_SPI_ReceiveData16(SPI1);
-    buf |= data << (15 - bitCount);
-
-    LL_SPI_Disable(SPI1);
-    LL_SPI_SetDataWidth(SPI1, (14 - bitCount) << 8);
-    LL_SPI_SetRxFIFOThreshold(SPI1, (14 - bitCount < 9) ? LL_SPI_RX_FIFO_TH_QUARTER : LL_SPI_RX_FIFO_TH_HALF);
-    LL_SPI_Enable(SPI1);
-    if (15 - bitCount < 9) {
-      LL_SPI_TransmitData8(SPI1, 0);
-    }
-    else {
-      LL_SPI_TransmitData16(SPI1, 0);
-    }
-    startTime = TIM2->CNT;
-    while (!LL_SPI_IsActiveFlag_RXNE(SPI1)){
-      if (TIM2->CNT - startTime > 32U) {
-        printCANBus("timeout 4\n");
-        break;
-      }
-    }
-    data = LL_SPI_ReceiveData16(SPI1);
-    buf |= data;
-
-    motor_PhysPosition = (buf >> 5U) & (N_STEP_ENCODER-1);
+    LL_SPI_TransmitData16(SPI1, 0);
+    while (!LL_SPI_IsActiveFlag_RXNE(SPI1));
+    buf |= LL_SPI_ReceiveData16(SPI1) >> 8;
+    LL_SPI_TransmitData16(SPI1, 0);
+    while (!LL_SPI_IsActiveFlag_RXNE(SPI1));
+    buf |= ((uint32_t)LL_SPI_ReceiveData16(SPI1)) << 8;
+    motor_PhysPosition = buf & (N_STEP_ENCODER - 1);
     #endif
 
 
-    motor_PhysPosition += Encoder_os;
-    motor_ElecPosition = fmodf(motor_PhysPosition / N_STEP_ENCODER * N_POLES, 1.0f) * M_PI * 2.0f; // radians
+    //motor_PhysPosition = (TIM2->CNT >> 3) % N_STEP_ENCODER;
+    motor_ElecPosition = fmodf((float)(motor_PhysPosition + Encoder_os) / N_STEP_ENCODER * N_POLES, 1.0f) * M_PI * 2.0f; // radians
 
     // read gate driver status (FLT and RDY pins)
     driver_RDY = (DRV_RDY_UH<<5) | (DRV_RDY_UL<<4) | (DRV_RDY_VH<<3) | (DRV_RDY_VL<<2) | (DRV_RDY_WH<<1) | DRV_RDY_WL;
     driver_OK  = (DRV_FLT_UH<<5) | (DRV_FLT_UL<<4) | (DRV_FLT_VH<<3) | (DRV_FLT_VL<<2) | (DRV_FLT_WH<<1) | DRV_FLT_WL;
-    if ((driver_RDY | driver_OK) != 63){ // 0b00111111
+    if ((driver_RDY & driver_OK) != 63){ // 0b00111111
       disableGateDriver();
     }
 
@@ -368,15 +330,17 @@ int main(void)
     float I_d = I_a * cos_elec_position + I_b * sin_elec_position;
     float I_q = I_b * cos_elec_position - I_a * sin_elec_position;
     // PI controllers on Q and D
-    float cmd_d = PID_update(&PID_I_d, I_d, 0.0f, dt);
-    float cmd_q = PID_update(&PID_I_q, I_q, TargetCurrent, dt);
+    float cmd_d = 0.0f;//PID_update(&PID_I_d, I_d, 0.0f, dt);
+    float cmd_q = PID_update(&PID_I_q, I_q, TargetCurrent, dt) * 0.5;
     // Inverse Park transform
     float cmd_a = cmd_d * cos_elec_position - cmd_q * sin_elec_position;
     float cmd_b = cmd_q * cos_elec_position + cmd_d * sin_elec_position;
     // Inverse Clarke transform
-    int16_t duty_u = cmd_a * 64000;
-    int16_t duty_v = (cmd_a * -0.5f + 0.8660254037844386f * cmd_b) * 64000;
-    int16_t duty_w = (cmd_a * -0.5f - 0.8660254037844386f * cmd_b) * 64000;
+    SVPWM_DutyCycles duty_cycles;
+    calculate_SVPWM(cmd_a, cmd_b, &duty_cycles);
+    int32_t duty_u = duty_cycles.duty_u * 64000;
+    int32_t duty_v = duty_cycles.duty_v * 64000;
+    int32_t duty_w = duty_cycles.duty_w * 64000;
     // Update duty cycle
     writePwm(U_TIMER, duty_u);
     writePwm(V_TIMER, duty_v);
@@ -385,12 +349,15 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    sprintf(printBuffer, "ADC1_1: %d, ADC1_2: %d, ADC1_3: %d, ADC2_5: %d, ", 
+    printCANBus("----------------------\n");
+    sprintf(printBuffer, "ADC1_1: %d, ADC1_2: %d, ADC1_3: %d, ADC2_5: %d\n", 
     adc_data[0], adc_data[1], adc_data[2], adc_data[3]);
     printCANBus(printBuffer);
-    sprintf(printBuffer, "motor_PhysPosition: %lu\n", motor_PhysPosition);
+    sprintf(printBuffer, "motor_PhysPosition: %lu motor_ElecPosition: %.03f\n", motor_PhysPosition, motor_ElecPosition);
     printCANBus(printBuffer);
     sprintf(printBuffer, "driver_RDY: %u driver_OK: %u\n", driver_RDY, driver_OK);
+    printCANBus(printBuffer);
+    sprintf(printBuffer, "U: %6ld, V: %6ld, W: %6ld, I_d: %.03f, cmd_d: %.03f, I_q: %.03f, cmd_q: %.03f\n", duty_u, duty_v, duty_w, I_d, cmd_d, I_q, cmd_q);
     printCANBus(printBuffer);
   }
   /* USER CODE END 3 */
@@ -485,26 +452,78 @@ void printCANBus(char* text) {
 }
 
 void writePwm(uint32_t timer, int32_t duty) {
-  // single sided
-  if (duty < deadTime && duty > -deadTime) {
-    duty = 0;
-  }
-  else if (duty > 64000 - deadTime) {
-    duty = 64000;
-  }
-  else if (duty < deadTime - 64000) {
-    duty = -64000;
+  duty = (duty > 64000 - deadTime) ? 64000 - deadTime : duty;
+  duty = (duty < deadTime) ? deadTime : duty;
+  LL_HRTIM_TIM_SetCompare1(HRTIM1, timer, duty - deadTime);
+  LL_HRTIM_TIM_SetCompare3(HRTIM1, timer, duty + deadTime);
+}
+
+void calculate_SVPWM(float v_alpha, float v_beta, SVPWM_DutyCycles *duty_cycles) {
+  float V_ref = sqrtf(v_alpha * v_alpha + v_beta * v_beta);
+  float angle = atan2f(v_beta, v_alpha);
+
+  if (V_ref > 1.0f) V_ref = 1.0f;  // Normalize voltage magnitude
+
+  // Normalize angle to [0, 2*PI]
+  angle = fmodf(angle, 2 * PI);
+  if (angle < 0) angle += 2 * PI;
+
+  // Sector determination
+  int sector = (int)(angle / (PI / 3)) + 1;
+  float angle_sector = angle - (sector - 1) * (PI / 3);
+  
+  // Compute switching times
+  float t1 = V_ref * cosf(angle_sector);
+  float t2 = V_ref * cosf((PI / 3) - angle_sector);
+  float t0 = 1.0f - (t1 + t2);
+
+  // Compute duty cycles based on the sector
+  float duty_u, duty_v, duty_w;
+  switch (sector) {
+    case 1:
+      duty_u = t1 + t2 + t0 / 2;
+      duty_v = t2 + t0 / 2;
+      duty_w = t0 / 2;
+      break;
+    case 2:
+      duty_u = t1 + t0 / 2;
+      duty_v = t1 + t2 + t0 / 2;
+      duty_w = t0 / 2;
+      break;
+    case 3:
+      duty_u = t0 / 2;
+      duty_v = t1 + t2 + t0 / 2;
+      duty_w = t2 + t0 / 2;
+      break;
+    case 4:
+      duty_u = t0 / 2;
+      duty_v = t1 + t0 / 2;
+      duty_w = t1 + t2 + t0 / 2;
+      break;
+    case 5:
+      duty_u = t2 + t0 / 2;
+      duty_v = t0 / 2;
+      duty_w = t1 + t2 + t0 / 2;
+      break;
+    case 6:
+      duty_u = t1 + t2 + t0 / 2;
+      duty_v = t0 / 2;
+      duty_w = t1 + t0 / 2;
+      break;
   }
 
-  if (duty > 0) {
-    LL_HRTIM_TIM_SetCompare1(HRTIM1, timer, duty);
-    LL_HRTIM_TIM_SetCompare3(HRTIM1, timer, 0);
+  // Normalize if duty cycles exceed 1.0
+  float max_duty = fmaxf(duty_u, fmaxf(duty_v, duty_w));
+  if (max_duty > 1.0f) {
+    duty_u /= max_duty;
+    duty_v /= max_duty;
+    duty_w /= max_duty;
   }
-  else {
-    LL_HRTIM_TIM_SetCompare1(HRTIM1, timer, 0);
-    LL_HRTIM_TIM_SetCompare3(HRTIM1, timer, duty);
-  }
-  return;
+
+  // Store in struct
+  duty_cycles->duty_u = duty_u;
+  duty_cycles->duty_v = duty_v;
+  duty_cycles->duty_w = duty_w;
 }
 
 /* USER CODE END 4 */
