@@ -33,15 +33,12 @@
 #include <math.h>
 #include <string.h>
 #include "PID.h"
+#include "svpwm.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-typedef struct {
-  float duty_u;
-  float duty_v;
-  float duty_w;
-} SVPWM_DutyCycles;
+
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -49,7 +46,8 @@ typedef struct {
 #define SYSTICK_LOAD (SystemCoreClock/1000000U)
 #define SYSTICK_DELAY_CALIB (SYSTICK_LOAD >> 1)
 
-#define PI M_PI
+#define PI 3.14159265358979323846f
+#define PI_2o3 2.0943951023931953f
 
 #define U_TIMER LL_HRTIM_TIMER_B
 #define V_TIMER LL_HRTIM_TIMER_F
@@ -118,13 +116,15 @@ int16_t KTY_LookupT[] = {-55,-50,-40,-30,-20,-10,0,10,20,25,30,40,50,60,70,80,90
 uint16_t KTY_LookupSize = 24;
 #endif
 #ifdef USE_AMK_MOTOR
-uint32_t Encoder_os = 40000; // TODO
+uint32_t Encoder_os = 678; // TODO
 int16_t KTY_LookupR[] = {359,391,424,460,498,538,581,603,626,672,722,773,826,882,940,1000,1062,1127,1194,1262,1334,1407,1482,1560,1640,1722,1807,1893,1982,2073,2166,2261,2357,2452,2542,2624};
 int16_t KTY_LookupT[] = {-40,-30,-20,-10,0,10,20,25,30,40,50,60,70,80,90,100,110,120,130,140,150,160,170,180,190,200,210,220,230,240,250,260,270,280,290,300};
 uint16_t KTY_LookupSize = 36;
 #endif
 
 PID PID_I_d, PID_I_q;
+
+tSVPWM sSVPWM = SVPWM_DEFAULTS;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -135,7 +135,6 @@ void resetGateDriver();
 void disableGateDriver();
 void writePwm(uint32_t timer, int32_t duty);
 int16_t lookupTbl(int16_t* source, int16_t* target); //TODO
-void calculate_SVPWM(float v_alpha, float v_beta, SVPWM_DutyCycles *duty_cycles);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -231,11 +230,14 @@ int main(void)
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   // Motor variables
-  uint32_t motor_PhysPosition;
+  int32_t motor_PhysPosition;
   float motor_ElecPosition;
   float U_current, V_current, W_current;
-  PID_setParams(&PID_I_q, 0.0f, 0.01f, 0.0f);
-  PID_setParams(&PID_I_d, 0.0f, 0.01f, 0.0f);
+  PID_setParams(&PID_I_q, 0.0f, 0.003f, 0.0f);
+  PID_setParams(&PID_I_d, 0.0f, 0.003f, 0.0f);
+  sSVPWM.enInType = AlBe;  // set the input type
+  sSVPWM.fUdc = 1.0f;    // set the DC-Link voltage in Volts
+  sSVPWM.fUdcCCRval = 64000; // set the Max value of counter compare register which equal to DC-Link voltage
   
   // Gate driver variables
   // format: |NA|NA|UH|UL|VH|VL|WH|WL|
@@ -250,18 +252,30 @@ int main(void)
 
   // requests
   float TargetCurrent = 2.0f;
+
+  // measure ADC offset
+  int16_t adc_os[3] = {0, 0, 0};
+  for (int i = 0; i < 8; i++) {
+    LL_mDelay(1);
+    adc_os[0] += adc_data[0];
+    adc_os[1] += adc_data[1];
+    adc_os[2] += adc_data[2];
+  }
+  adc_os[0] = adc_os[0] >> 3;
+  adc_os[1] = adc_os[1] >> 3;
+  adc_os[2] = adc_os[2] >> 3;
   
   while (1)
   {
-    LL_mDelay(50);
+    //LL_mDelay(20);
     lastMicros = micros;
     micros = TIM2->CNT;
     dt = (micros - lastMicros) * 1e-6f;
 
     // convert ADC values to phase current and motor temperature
-    U_current = (adc_data[0] - 2018) / 13.33f;
-    V_current = (adc_data[1] - 2015) / 13.33f;
-    W_current = (adc_data[2] - 2007) / 13.33f;
+    U_current = -(adc_data[0] - adc_os[0]) / 13.33f;
+    V_current = -(adc_data[1] - adc_os[1]) / 13.33f;
+    W_current = -(adc_data[2] - adc_os[2]) / 13.33f;
     int16_t KTY_Resistance = adc_data[3] >> 1;
 
     #ifdef USE_EMRAX_MOTOR
@@ -306,12 +320,10 @@ int main(void)
     LL_SPI_TransmitData16(SPI1, 0);
     while (!LL_SPI_IsActiveFlag_RXNE(SPI1));
     buf |= ((uint32_t)LL_SPI_ReceiveData16(SPI1)) << 8;
-    motor_PhysPosition = buf & (N_STEP_ENCODER - 1);
+    motor_PhysPosition = N_STEP_ENCODER-1 - (buf & (N_STEP_ENCODER - 1));
     #endif
 
-
-    //motor_PhysPosition = (TIM2->CNT >> 3) % N_STEP_ENCODER;
-    motor_ElecPosition = fmodf((float)(motor_PhysPosition + Encoder_os) / N_STEP_ENCODER * N_POLES, 1.0f) * M_PI * 2.0f; // radians
+    motor_ElecPosition = fmodf((float)(motor_PhysPosition + Encoder_os) / N_STEP_ENCODER * N_POLES, 1.0f) * PI * 2.0f; // radians
 
     // read gate driver status (FLT and RDY pins)
     driver_RDY = (DRV_RDY_UH<<5) | (DRV_RDY_UL<<4) | (DRV_RDY_VH<<3) | (DRV_RDY_VL<<2) | (DRV_RDY_WH<<1) | DRV_RDY_WL;
@@ -330,18 +342,21 @@ int main(void)
     float I_d = I_a * cos_elec_position + I_b * sin_elec_position;
     float I_q = I_b * cos_elec_position - I_a * sin_elec_position;
     // PI controllers on Q and D
-    float cmd_d = 0.0f;//PID_update(&PID_I_d, I_d, 0.0f, dt);
-    float cmd_q = PID_update(&PID_I_q, I_q, TargetCurrent, dt) * 0.5;
+    float cmd_d = PID_update(&PID_I_d, I_d, 0.0f, dt)*0.5;
+    float cmd_q = PID_update(&PID_I_q, I_q, TargetCurrent, dt)*0.5;
     // Inverse Park transform
     float cmd_a = cmd_d * cos_elec_position - cmd_q * sin_elec_position;
     float cmd_b = cmd_q * cos_elec_position + cmd_d * sin_elec_position;
     // Inverse Clarke transform
-    SVPWM_DutyCycles duty_cycles;
-    calculate_SVPWM(cmd_a, cmd_b, &duty_cycles);
-    int32_t duty_u = duty_cycles.duty_u * 64000;
-    int32_t duty_v = duty_cycles.duty_v * 64000;
-    int32_t duty_w = duty_cycles.duty_w * 64000;
+    // SVPWM_DutyCycles duty_cycles;
+    // calculate_SVPWM(cmd_a, cmd_b, &duty_cycles);
+    sSVPWM.fUal = cmd_a;	// set a new value of voltage Alpha
+    sSVPWM.fUbe = cmd_b;	// set a new value of voltage Beta
+    sSVPWM.m_calc(&sSVPWM);		// call the SVPWM duty cycles calculation function
     // Update duty cycle
+    int32_t duty_u = sSVPWM.fCCRA;
+    int32_t duty_v = sSVPWM.fCCRB;
+    int32_t duty_w = sSVPWM.fCCRC;
     writePwm(U_TIMER, duty_u);
     writePwm(V_TIMER, duty_v);
     writePwm(W_TIMER, duty_w);
@@ -349,16 +364,16 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    printCANBus("----------------------\n");
-    sprintf(printBuffer, "ADC1_1: %d, ADC1_2: %d, ADC1_3: %d, ADC2_5: %d\n", 
-    adc_data[0], adc_data[1], adc_data[2], adc_data[3]);
-    printCANBus(printBuffer);
-    sprintf(printBuffer, "motor_PhysPosition: %lu motor_ElecPosition: %.03f\n", motor_PhysPosition, motor_ElecPosition);
-    printCANBus(printBuffer);
-    sprintf(printBuffer, "driver_RDY: %u driver_OK: %u\n", driver_RDY, driver_OK);
-    printCANBus(printBuffer);
-    sprintf(printBuffer, "U: %6ld, V: %6ld, W: %6ld, I_d: %.03f, cmd_d: %.03f, I_q: %.03f, cmd_q: %.03f\n", duty_u, duty_v, duty_w, I_d, cmd_d, I_q, cmd_q);
-    printCANBus(printBuffer);
+    // printCANBus("----------------------\n");
+    // sprintf(printBuffer, "ADC1_1: %d, ADC1_2: %d, ADC1_3: %d, ADC2_5: %d\n", 
+    // adc_data[0], adc_data[1], adc_data[2], adc_data[3]);
+    // printCANBus(printBuffer);
+    // sprintf(printBuffer, "motor_PhysPosition: %6ld motor_ElecPosition: %.03f\n", motor_PhysPosition, motor_ElecPosition);
+    // printCANBus(printBuffer);
+    // sprintf(printBuffer, "driver_RDY: %u driver_OK: %u\n", driver_RDY, driver_OK);
+    // printCANBus(printBuffer);
+    // sprintf(printBuffer, "U: %6ld, V: %6ld, W: %6ld, I_d: %.03f, cmd_d: %.03f, I_q: %.03f, cmd_q: %.03f\n", duty_u, duty_v, duty_w, I_d, cmd_d, I_q, cmd_q);
+    // printCANBus(printBuffer);
   }
   /* USER CODE END 3 */
 }
@@ -452,78 +467,21 @@ void printCANBus(char* text) {
 }
 
 void writePwm(uint32_t timer, int32_t duty) {
-  duty = (duty > 64000 - deadTime) ? 64000 - deadTime : duty;
-  duty = (duty < deadTime) ? deadTime : duty;
-  LL_HRTIM_TIM_SetCompare1(HRTIM1, timer, duty - deadTime);
-  LL_HRTIM_TIM_SetCompare3(HRTIM1, timer, duty + deadTime);
-}
-
-void calculate_SVPWM(float v_alpha, float v_beta, SVPWM_DutyCycles *duty_cycles) {
-  float V_ref = sqrtf(v_alpha * v_alpha + v_beta * v_beta);
-  float angle = atan2f(v_beta, v_alpha);
-
-  if (V_ref > 1.0f) V_ref = 1.0f;  // Normalize voltage magnitude
-
-  // Normalize angle to [0, 2*PI]
-  angle = fmodf(angle, 2 * PI);
-  if (angle < 0) angle += 2 * PI;
-
-  // Sector determination
-  int sector = (int)(angle / (PI / 3)) + 1;
-  float angle_sector = angle - (sector - 1) * (PI / 3);
-  
-  // Compute switching times
-  float t1 = V_ref * cosf(angle_sector);
-  float t2 = V_ref * cosf((PI / 3) - angle_sector);
-  float t0 = 1.0f - (t1 + t2);
-
-  // Compute duty cycles based on the sector
-  float duty_u, duty_v, duty_w;
-  switch (sector) {
-    case 1:
-      duty_u = t1 + t2 + t0 / 2;
-      duty_v = t2 + t0 / 2;
-      duty_w = t0 / 2;
-      break;
-    case 2:
-      duty_u = t1 + t0 / 2;
-      duty_v = t1 + t2 + t0 / 2;
-      duty_w = t0 / 2;
-      break;
-    case 3:
-      duty_u = t0 / 2;
-      duty_v = t1 + t2 + t0 / 2;
-      duty_w = t2 + t0 / 2;
-      break;
-    case 4:
-      duty_u = t0 / 2;
-      duty_v = t1 + t0 / 2;
-      duty_w = t1 + t2 + t0 / 2;
-      break;
-    case 5:
-      duty_u = t2 + t0 / 2;
-      duty_v = t0 / 2;
-      duty_w = t1 + t2 + t0 / 2;
-      break;
-    case 6:
-      duty_u = t1 + t2 + t0 / 2;
-      duty_v = t0 / 2;
-      duty_w = t1 + t0 / 2;
-      break;
+  uint32_t duty_H, duty_L;
+  if (duty <= deadTime) {
+    duty_H = 4;
+    duty_L = 4;
   }
-
-  // Normalize if duty cycles exceed 1.0
-  float max_duty = fmaxf(duty_u, fmaxf(duty_v, duty_w));
-  if (max_duty > 1.0f) {
-    duty_u /= max_duty;
-    duty_v /= max_duty;
-    duty_w /= max_duty;
+  else if (duty >= 64000 - deadTime) {
+    duty_H = 63995;
+    duty_L = 63995;
   }
-
-  // Store in struct
-  duty_cycles->duty_u = duty_u;
-  duty_cycles->duty_v = duty_v;
-  duty_cycles->duty_w = duty_w;
+  else {
+    duty_H = duty - deadTime;
+    duty_L = duty + deadTime;
+  }
+  LL_HRTIM_TIM_SetCompare1(HRTIM1, timer, duty_H);
+  LL_HRTIM_TIM_SetCompare3(HRTIM1, timer, duty_L);
 }
 
 /* USER CODE END 4 */

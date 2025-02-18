@@ -32,7 +32,7 @@
 			{
 				"command" : 1,
 				"file" : 0,
-				"line" : 65,
+				"line" : 66,
 				"parent" : 0
 			},
 			{
@@ -146,7 +146,8 @@
 				38,
 				39,
 				40,
-				41
+				41,
+				42
 			]
 		},
 		{
@@ -201,7 +202,7 @@
 			"language" : "ASM",
 			"sourceIndexes" : 
 			[
-				42
+				43
 			]
 		}
 	],
@@ -275,14 +276,15 @@
 				38,
 				39,
 				40,
-				41
+				41,
+				42
 			]
 		},
 		{
 			"name" : "",
 			"sourceIndexes" : 
 			[
-				42
+				43
 			]
 		}
 	],
@@ -292,6 +294,12 @@
 			"backtrace" : 3,
 			"compileGroupIndex" : 0,
 			"path" : "Core/Src/PID.c",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 3,
+			"compileGroupIndex" : 0,
+			"path" : "Core/Src/svpwm.c",
 			"sourceGroupIndex" : 0
 		},
 		{
