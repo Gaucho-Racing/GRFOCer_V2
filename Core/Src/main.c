@@ -111,14 +111,14 @@ char printBuffer[1024];
 
 #ifdef USE_EMRAX_MOTOR
 uint32_t Encoder_os = 731; // encoder offset angle
-uint16_t KTY_LookupR[] = {980,1030,1135,1247,1367,1495,1630,1772,1922,2000,2080,2245,2417,2597,2785,2980,3182,3392,3607,3817,3915,4008,4166,4280};
-int16_t KTY_LookupT[] = {-55,-50,-40,-30,-20,-10,0,10,20,25,30,40,50,60,70,80,90,100,110,120,125,130,140,150};
+int32_t KTY_LookupR[] = {980,1030,1135,1247,1367,1495,1630,1772,1922,2000,2080,2245,2417,2597,2785,2980,3182,3392,3607,3817,3915,4008,4166,4280};
+int32_t KTY_LookupT[] = {-55,-50,-40,-30,-20,-10,0,10,20,25,30,40,50,60,70,80,90,100,110,120,125,130,140,150};
 uint16_t KTY_LookupSize = 24;
 #endif
 #ifdef USE_AMK_MOTOR
-uint32_t Encoder_os = 678; // TODO
-int16_t KTY_LookupR[] = {359,391,424,460,498,538,581,603,626,672,722,773,826,882,940,1000,1062,1127,1194,1262,1334,1407,1482,1560,1640,1722,1807,1893,1982,2073,2166,2261,2357,2452,2542,2624};
-int16_t KTY_LookupT[] = {-40,-30,-20,-10,0,10,20,25,30,40,50,60,70,80,90,100,110,120,130,140,150,160,170,180,190,200,210,220,230,240,250,260,270,280,290,300};
+uint32_t Encoder_os = 678; // TODO: automatically measure this
+int32_t KTY_LookupR[] = {359,391,424,460,498,538,581,603,626,672,722,773,826,882,940,1000,1062,1127,1194,1262,1334,1407,1482,1560,1640,1722,1807,1893,1982,2073,2166,2261,2357,2452,2542,2624};
+int32_t KTY_LookupT[] = {-40,-30,-20,-10,0,10,20,25,30,40,50,60,70,80,90,100,110,120,130,140,150,160,170,180,190,200,210,220,230,240,250,260,270,280,290,300};
 uint16_t KTY_LookupSize = 36;
 #endif
 
@@ -134,7 +134,7 @@ void printCANBus(char* text);
 void resetGateDriver();
 void disableGateDriver();
 void writePwm(uint32_t timer, int32_t duty);
-int16_t lookupTbl(int16_t* source, int16_t* target); //TODO
+int32_t lookupTbl(const int32_t* source, const int32_t* target, const uint32_t size, const int32_t value);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -216,6 +216,11 @@ int main(void)
   // CANbus setup
   HAL_FDCAN_Start(&hfdcan2);
 
+  // Enable TIM1, TIM15, and TIM5 (MOSFET temperture PWM signal)
+  LL_TIM_EnableCounter(TIM1);
+  LL_TIM_EnableCounter(TIM15);
+  LL_TIM_EnableCounter(TIM5);
+
   // Enable HRTIM (gate drive signals)
   writePwm(U_TIMER, 0);
   writePwm(V_TIMER, 0);
@@ -238,7 +243,8 @@ int main(void)
   sSVPWM.enInType = AlBe;  // set the input type
   sSVPWM.fUdc = 1.0f;    // set the DC-Link voltage in Volts
   sSVPWM.fUdcCCRval = 64000; // set the Max value of counter compare register which equal to DC-Link voltage
-  
+  int32_t KTY_Temperature;
+
   // Gate driver variables
   // format: |NA|NA|UH|UL|VH|VL|WH|WL|
   uint8_t driver_RDY = 0;
@@ -272,11 +278,6 @@ int main(void)
     micros = TIM2->CNT;
     dt = (micros - lastMicros) * 1e-6f;
 
-    // convert ADC values to phase current and motor temperature
-    U_current = -(adc_data[0] - adc_os[0]) / 13.33f;
-    V_current = -(adc_data[1] - adc_os[1]) / 13.33f;
-    W_current = -(adc_data[2] - adc_os[2]) / 13.33f;
-    int16_t KTY_Resistance = adc_data[3] >> 1;
 
     #ifdef USE_EMRAX_MOTOR
     // read motor position (RM44SI encoder)
@@ -301,6 +302,13 @@ int main(void)
     LL_SPI_Enable(SPI1);
     LL_SPI_TransmitData16(SPI1, 0b0000011100U); // send mode 1: Encoder send position values
     uint32_t startTime = TIM2->CNT;
+    // This seems very messy but I have to do this to save time
+    // Do math while waiting for SPI to complete
+    // convert ADC values to phase current and motor temperature
+    U_current = -(adc_data[0] - adc_os[0]) / 13.33f;
+    V_current = -(adc_data[1] - adc_os[1]) / 13.33f;
+    W_current = -(adc_data[2] - adc_os[2]) / 13.33f;
+    KTY_Temperature = lookupTbl(KTY_LookupR, KTY_LookupT, KTY_LookupSize, adc_data[3] >> 1);
     while (LL_SPI_IsActiveFlag_BSY(SPI1)){
       if (TIM2->CNT - startTime > 20U) {
         printCANBus("timeout 1\n");
@@ -314,24 +322,23 @@ int main(void)
     LL_SPI_SetTransferBitOrder(SPI1, LL_SPI_LSB_FIRST);
     LL_SPI_SetClockPhase(SPI1, LL_SPI_PHASE_1EDGE);
     LL_SPI_Enable(SPI1);
-    LL_SPI_TransmitData16(SPI1, 0);
-    while (!LL_SPI_IsActiveFlag_RXNE(SPI1));
-    buf |= LL_SPI_ReceiveData16(SPI1) >> 8;
-    LL_SPI_TransmitData16(SPI1, 0);
-    while (!LL_SPI_IsActiveFlag_RXNE(SPI1));
-    buf |= ((uint32_t)LL_SPI_ReceiveData16(SPI1)) << 8;
-    motor_PhysPosition = N_STEP_ENCODER-1 - (buf & (N_STEP_ENCODER - 1));
-    #endif
-
-    motor_ElecPosition = fmodf((float)(motor_PhysPosition + Encoder_os) / N_STEP_ENCODER * N_POLES, 1.0f) * PI * 2.0f; // radians
-
+    SPI1->DR = 0;
+    SPI1->DR = 0;
     // read gate driver status (FLT and RDY pins)
     driver_RDY = (DRV_RDY_UH<<5) | (DRV_RDY_UL<<4) | (DRV_RDY_VH<<3) | (DRV_RDY_VL<<2) | (DRV_RDY_WH<<1) | DRV_RDY_WL;
     driver_OK  = (DRV_FLT_UH<<5) | (DRV_FLT_UL<<4) | (DRV_FLT_VH<<3) | (DRV_FLT_VL<<2) | (DRV_FLT_WH<<1) | DRV_FLT_WL;
     if ((driver_RDY & driver_OK) != 63){ // 0b00111111
       disableGateDriver();
     }
+    while (!LL_SPI_IsActiveFlag_RXNE(SPI1));
+    buf |= LL_SPI_ReceiveData16(SPI1) >> 8;
+    while (!LL_SPI_IsActiveFlag_RXNE(SPI1));
+    buf |= ((uint32_t)LL_SPI_ReceiveData16(SPI1)) << 8;
+    motor_PhysPosition = N_STEP_ENCODER-1 - (buf & (N_STEP_ENCODER - 1));
+    #endif
 
+
+    motor_ElecPosition = fmodf((float)(motor_PhysPosition + Encoder_os) / N_STEP_ENCODER * N_POLES, 1.0f) * PI * 2.0f; // radians
     // FOC
     float sin_elec_position = sinf(motor_ElecPosition);
     float cos_elec_position = cosf(motor_ElecPosition);
@@ -343,7 +350,7 @@ int main(void)
     float I_q = I_b * cos_elec_position - I_a * sin_elec_position;
     // PI controllers on Q and D
     float cmd_d = PID_update(&PID_I_d, I_d, 0.0f, dt)*0.5;
-    float cmd_q = PID_update(&PID_I_q, I_q, TargetCurrent, dt)*0.5;
+    float cmd_q = PID_update(&PID_I_q, I_q, TargetCurrent, dt);
     // Inverse Park transform
     float cmd_a = cmd_d * cos_elec_position - cmd_q * sin_elec_position;
     float cmd_b = cmd_q * cos_elec_position + cmd_d * sin_elec_position;
@@ -492,6 +499,25 @@ void writePwm(uint32_t timer, int32_t duty) {
   }
   LL_HRTIM_TIM_SetCompare1(HRTIM1, timer, duty_H);
   LL_HRTIM_TIM_SetCompare3(HRTIM1, timer, duty_L);
+}
+
+int32_t lookupTbl(const int32_t* source, const int32_t* target, const uint32_t size, const int32_t value) {
+  uint32_t left = 0;
+  uint32_t right = size - 1;
+  uint32_t middle = (left + right) >> 1;
+  while (right - left > 1) {
+    if (source[middle] < value) {
+      left = middle;
+    }
+    else if (source[middle] > value){
+      right = middle;
+    }
+    else {
+      return target[middle];
+    }
+    middle = (left + right) >> 1;
+  }
+  return (value - source[left]) * (target[right] - target[left]) / (source[right] - source[left]) + target[left];
 }
 
 /* USER CODE END 4 */
