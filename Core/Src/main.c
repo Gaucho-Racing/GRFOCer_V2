@@ -469,16 +469,26 @@ void printCANBus(char* text) {
 void writePwm(uint32_t timer, int32_t duty) {
   uint32_t duty_H, duty_L;
   if (duty <= deadTime) {
-    duty_H = 4;
-    duty_L = 4;
+    duty_H = 0;
+    duty_L = 0;
   }
   else if (duty >= 64000 - deadTime) {
-    duty_H = 63995;
-    duty_L = 63995;
+    duty_H = 64001;
+    duty_L = 64001;
   }
   else {
-    duty_H = duty - deadTime;
-    duty_L = duty + deadTime;
+    if (duty <= deadTime << 1) {
+      duty_H = 0;
+      duty_L = duty + deadTime;
+    }
+    else if (duty >= 64000 - (deadTime << 1)) {
+      duty_H = duty - deadTime;
+      duty_L = 64001;
+    }
+    else {
+      duty_H = duty - deadTime;
+      duty_L = duty + deadTime;
+    }
   }
   LL_HRTIM_TIM_SetCompare1(HRTIM1, timer, duty_H);
   LL_HRTIM_TIM_SetCompare3(HRTIM1, timer, duty_L);
