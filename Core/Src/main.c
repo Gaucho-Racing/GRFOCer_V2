@@ -116,7 +116,7 @@ int32_t KTY_LookupT[] = {-55,-50,-40,-30,-20,-10,0,10,20,25,30,40,50,60,70,80,90
 uint16_t KTY_LookupSize = 24;
 #endif
 #ifdef USE_AMK_MOTOR
-uint32_t Encoder_os = 678; // TODO: automatically measure this
+uint32_t Encoder_os = 0;//678; // TODO: automatically measure this
 int32_t KTY_LookupR[] = {359,391,424,460,498,538,581,603,626,672,722,773,826,882,940,1000,1062,1127,1194,1262,1334,1407,1482,1560,1640,1722,1807,1893,1982,2073,2166,2261,2357,2452,2542,2624};
 int32_t KTY_LookupT[] = {-40,-30,-20,-10,0,10,20,25,30,40,50,60,70,80,90,100,110,120,130,140,150,160,170,180,190,200,210,220,230,240,250,260,270,280,290,300};
 uint16_t KTY_LookupSize = 36;
@@ -238,18 +238,23 @@ int main(void)
   int32_t motor_PhysPosition;
   float motor_ElecPosition;
   float U_current, V_current, W_current;
-  PID_setParams(&PID_I_q, 0.0f, 0.003f, 0.0f);
-  PID_setParams(&PID_I_d, 0.0f, 0.003f, 0.0f);
+  int32_t KTY_Temperature;
+  // FOC variables
+  PID_setParams(&PID_I_q, 0.0f, 0.01f, 0.0f);
+  PID_setParams(&PID_I_d, 0.0f, 0.01f, 0.0f);
   sSVPWM.enInType = AlBe;  // set the input type
   sSVPWM.fUdc = 1.0f;    // set the DC-Link voltage in Volts
   sSVPWM.fUdcCCRval = 64000; // set the Max value of counter compare register which equal to DC-Link voltage
-  int32_t KTY_Temperature;
+  float sin_elec_position, cos_elec_position;
+  float I_a, I_b, I_q, I_d;
+  float cmd_q, cmd_d;
 
   // Gate driver variables
   // format: |NA|NA|UH|UL|VH|VL|WH|WL|
   uint8_t driver_RDY = 0;
   uint8_t driver_OK = 0;
   resetGateDriver();
+  int32_t duty_u, duty_v, duty_w;
 
   // timing stuff
   uint32_t micros = TIM2->CNT;
@@ -257,7 +262,7 @@ int main(void)
   float dt = (micros - lastMicros) * 1e-6f;
 
   // requests
-  float TargetCurrent = 2.0f;
+  float TargetCurrent = 1.5f;
 
   // measure ADC offset
   int16_t adc_os[3] = {0, 0, 0};
@@ -293,7 +298,7 @@ int main(void)
     // read motor position (AMK type-P encoder)
     uint32_t buf = 0U;
     ENDAT_DIR_WRITE;
-    while (LL_SPI_IsActiveFlag_RXNE(SPI1)) LL_SPI_ReceiveData8(SPI1); // clear SPI buffer
+    //while (LL_SPI_IsActiveFlag_RXNE(SPI1)) LL_SPI_ReceiveData8(SPI1); // clear SPI buffer
     LL_SPI_Disable(SPI1);
     LL_SPI_SetDataWidth(SPI1, LL_SPI_DATAWIDTH_10BIT);
     LL_SPI_SetRxFIFOThreshold(SPI1, LL_SPI_RX_FIFO_TH_HALF);
@@ -308,7 +313,13 @@ int main(void)
     U_current = -(adc_data[0] - adc_os[0]) / 13.33f;
     V_current = -(adc_data[1] - adc_os[1]) / 13.33f;
     W_current = -(adc_data[2] - adc_os[2]) / 13.33f;
-    KTY_Temperature = lookupTbl(KTY_LookupR, KTY_LookupT, KTY_LookupSize, adc_data[3] >> 1);
+    // read gate driver status (FLT and RDY pins)
+    driver_RDY = (DRV_RDY_UH<<5) | (DRV_RDY_UL<<4) | (DRV_RDY_VH<<3) | (DRV_RDY_VL<<2) | (DRV_RDY_WH<<1) | DRV_RDY_WL;
+    driver_OK  = (DRV_FLT_UH<<5) | (DRV_FLT_UL<<4) | (DRV_FLT_VH<<3) | (DRV_FLT_VL<<2) | (DRV_FLT_WH<<1) | DRV_FLT_WL;
+    if ((driver_RDY & driver_OK) != 63){ // 0b00111111
+      disableGateDriver();
+    }
+
     while (LL_SPI_IsActiveFlag_BSY(SPI1)){
       if (TIM2->CNT - startTime > 20U) {
         printCANBus("timeout 1\n");
@@ -322,51 +333,46 @@ int main(void)
     LL_SPI_SetTransferBitOrder(SPI1, LL_SPI_LSB_FIRST);
     LL_SPI_SetClockPhase(SPI1, LL_SPI_PHASE_1EDGE);
     LL_SPI_Enable(SPI1);
-    SPI1->DR = 0;
-    SPI1->DR = 0;
-    // read gate driver status (FLT and RDY pins)
-    driver_RDY = (DRV_RDY_UH<<5) | (DRV_RDY_UL<<4) | (DRV_RDY_VH<<3) | (DRV_RDY_VL<<2) | (DRV_RDY_WH<<1) | DRV_RDY_WL;
-    driver_OK  = (DRV_FLT_UH<<5) | (DRV_FLT_UL<<4) | (DRV_FLT_VH<<3) | (DRV_FLT_VL<<2) | (DRV_FLT_WH<<1) | DRV_FLT_WL;
-    if ((driver_RDY & driver_OK) != 63){ // 0b00111111
-      disableGateDriver();
-    }
+    LL_SPI_TransmitData16(SPI1, 0U);
+    LL_SPI_TransmitData16(SPI1, 0U);
+
+    // again, do math while waiting for SPI
+    // Clarke transform
+    I_a = U_current * 0.66666667f - V_current * 0.33333333f - W_current * 0.33333333f;
+    I_b = 0.5773502691896257f * (V_current - W_current);
+    // calculate motor temperature
+    KTY_Temperature = lookupTbl(KTY_LookupR, KTY_LookupT, KTY_LookupSize, adc_data[3] >> 1);
+
     while (!LL_SPI_IsActiveFlag_RXNE(SPI1));
     buf |= LL_SPI_ReceiveData16(SPI1) >> 8;
     while (!LL_SPI_IsActiveFlag_RXNE(SPI1));
     buf |= ((uint32_t)LL_SPI_ReceiveData16(SPI1)) << 8;
-    motor_PhysPosition = N_STEP_ENCODER-1 - (buf & (N_STEP_ENCODER - 1));
     #endif
 
-
+    motor_PhysPosition = N_STEP_ENCODER-1 - (buf & (N_STEP_ENCODER - 1));
     motor_ElecPosition = fmodf((float)(motor_PhysPosition + Encoder_os) / N_STEP_ENCODER * N_POLES, 1.0f) * PI * 2.0f; // radians
     // FOC
-    float sin_elec_position = sinf(motor_ElecPosition);
-    float cos_elec_position = cosf(motor_ElecPosition);
-    // Clarke transform
-    float I_a = U_current * 0.66666667f - V_current * 0.33333333f - W_current * 0.33333333f;
-    float I_b = 0.5773502691896257f * (V_current - W_current);
+    sin_elec_position = sinf(motor_ElecPosition);
+    cos_elec_position = cosf(motor_ElecPosition);
     // Park transform
-    float I_d = I_a * cos_elec_position + I_b * sin_elec_position;
-    float I_q = I_b * cos_elec_position - I_a * sin_elec_position;
+    I_d = I_a * cos_elec_position + I_b * sin_elec_position;
+    I_q = I_b * cos_elec_position - I_a * sin_elec_position;
     // PI controllers on Q and D
-    float cmd_d = PID_update(&PID_I_d, I_d, 0.0f, dt)*0.5;
-    float cmd_q = PID_update(&PID_I_q, I_q, TargetCurrent, dt);
+    cmd_d = PID_update(&PID_I_d, I_d, 25.0f, dt) * 0.5;
+    cmd_q = PID_update(&PID_I_q, I_q, TargetCurrent, dt)* 0.57;
     // Inverse Park transform
-    float cmd_a = cmd_d * cos_elec_position - cmd_q * sin_elec_position;
-    float cmd_b = cmd_q * cos_elec_position + cmd_d * sin_elec_position;
+    sSVPWM.fUal = cmd_d * cos_elec_position - cmd_q * sin_elec_position;
+    sSVPWM.fUbe = cmd_q * cos_elec_position + cmd_d * sin_elec_position;
     // Inverse Clarke transform
-    // SVPWM_DutyCycles duty_cycles;
-    // calculate_SVPWM(cmd_a, cmd_b, &duty_cycles);
-    sSVPWM.fUal = cmd_a;	// set a new value of voltage Alpha
-    sSVPWM.fUbe = cmd_b;	// set a new value of voltage Beta
-    sSVPWM.m_calc(&sSVPWM);		// call the SVPWM duty cycles calculation function
+    sSVPWM.m_calc(&sSVPWM);
     // Update duty cycle
-    int32_t duty_u = sSVPWM.fCCRA;
-    int32_t duty_v = sSVPWM.fCCRB;
-    int32_t duty_w = sSVPWM.fCCRC;
+    duty_u = sSVPWM.fCCRA;
+    duty_v = sSVPWM.fCCRB;
+    duty_w = sSVPWM.fCCRC;
     writePwm(U_TIMER, duty_u);
     writePwm(V_TIMER, duty_v);
     writePwm(W_TIMER, duty_w);
+    
 
     /* USER CODE END WHILE */
 

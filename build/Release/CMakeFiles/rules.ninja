@@ -7,14 +7,14 @@
 
 # =============================================================================
 # Project: FirmwareVer2A
-# Configurations: Debug
+# Configurations: Release
 # =============================================================================
 # =============================================================================
 
 #############################################
 # Rule for compiling ASM files.
 
-rule ASM_COMPILER__FirmwareVer2A_unscanned_Debug
+rule ASM_COMPILER__FirmwareVer2A_unscanned_Release
   depfile = $DEP_FILE
   deps = gcc
   command = ${LAUNCHER}${CODE_CHECK}C:\PROGRA~2\ARMGNU~1\133167~1.3RE\bin\AR19DD~1.EXE $DEFINES $INCLUDES $FLAGS -MD -MT $out -MF $DEP_FILE -o $out -c $in
@@ -24,7 +24,7 @@ rule ASM_COMPILER__FirmwareVer2A_unscanned_Debug
 #############################################
 # Rule for compiling C files.
 
-rule C_COMPILER__FirmwareVer2A_unscanned_Debug
+rule C_COMPILER__FirmwareVer2A_unscanned_Release
   depfile = $DEP_FILE
   deps = gcc
   command = ${LAUNCHER}${CODE_CHECK}C:\PROGRA~2\ARMGNU~1\133167~1.3RE\bin\AR19DD~1.EXE $DEFINES $INCLUDES $FLAGS -MD -MT $out -MF $DEP_FILE -o $out -c $in
@@ -34,7 +34,7 @@ rule C_COMPILER__FirmwareVer2A_unscanned_Debug
 #############################################
 # Rule for linking C executable.
 
-rule C_EXECUTABLE_LINKER__FirmwareVer2A_Debug
+rule C_EXECUTABLE_LINKER__FirmwareVer2A_Release
   command = C:\WINDOWS\system32\cmd.exe /C "$PRE_LINK && C:\PROGRA~2\ARMGNU~1\133167~1.3RE\bin\AR19DD~1.EXE $FLAGS -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard  -T "C:/SynologyDrive/University/GauchoRacing/GR25/MotorController/FirmwareVer2A/STM32G474RETx_FLASH.ld" --specs=nano.specs -Wl,-Map=FirmwareVer2A.map -Wl,--gc-sections -Wl,--start-group -lc -lm -Wl,--end-group -Wl,--print-memory-usage $LINK_FLAGS $in -o $TARGET_FILE $LINK_PATH $LINK_LIBRARIES && $POST_BUILD"
   description = Linking C executable $TARGET_FILE
   restat = $RESTAT
@@ -52,7 +52,7 @@ rule CUSTOM_COMMAND
 # Rule for re-running cmake.
 
 rule RERUN_CMAKE
-  command = "C:\Program Files\CMake\bin\cmake.exe" --regenerate-during-build -SC:\SynologyDrive\University\GauchoRacing\GR25\MotorController\FirmwareVer2A -BC:\SynologyDrive\University\GauchoRacing\GR25\MotorController\FirmwareVer2A\build\Debug
+  command = "C:\Program Files\CMake\bin\cmake.exe" --regenerate-during-build -SC:\SynologyDrive\University\GauchoRacing\GR25\MotorController\FirmwareVer2A -BC:\SynologyDrive\University\GauchoRacing\GR25\MotorController\FirmwareVer2A\build\Release
   description = Re-running CMake...
   generator = 1
 
