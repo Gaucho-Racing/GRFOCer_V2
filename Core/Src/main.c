@@ -67,6 +67,9 @@
 #define N_STEP_ENCODER 262144UL
 #define N_POLES 5U
 #endif
+
+#define CAN_CMD_ID 0x201708UL
+#define CAN_CFG_ID 0x201608UL
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -116,7 +119,7 @@ int32_t KTY_LookupT[] = {-55,-50,-40,-30,-20,-10,0,10,20,25,30,40,50,60,70,80,90
 uint16_t KTY_LookupSize = 24;
 #endif
 #ifdef USE_AMK_MOTOR
-uint32_t Encoder_os = 0;//678; // TODO: automatically measure this
+uint32_t Encoder_os = 0;
 int32_t KTY_LookupR[] = {359,391,424,460,498,538,581,603,626,672,722,773,826,882,940,1000,1062,1127,1194,1262,1334,1407,1482,1560,1640,1722,1807,1893,1982,2073,2166,2261,2357,2452,2542,2624};
 int32_t KTY_LookupT[] = {-40,-30,-20,-10,0,10,20,25,30,40,50,60,70,80,90,100,110,120,130,140,150,160,170,180,190,200,210,220,230,240,250,260,270,280,290,300};
 uint16_t KTY_LookupSize = 36;
@@ -125,6 +128,8 @@ uint16_t KTY_LookupSize = 36;
 PID PID_I_d, PID_I_q;
 
 tSVPWM sSVPWM = SVPWM_DEFAULTS;
+volatile float TargetCurrent = 0.0f;
+volatile float TargetFieldWk = 0.0f;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -215,6 +220,7 @@ int main(void)
 
   // CANbus setup
   HAL_FDCAN_Start(&hfdcan2);
+  HAL_FDCAN_ActivateNotification(&hfdcan2, FDCAN_IT_RX_FIFO0_NEW_MESSAGE, 0);
 
   // Enable TIM1, TIM15, and TIM5 (MOSFET temperture PWM signal)
   LL_TIM_EnableCounter(TIM1);
@@ -261,9 +267,6 @@ int main(void)
   uint32_t lastMicros = 0;
   float dt = (micros - lastMicros) * 1e-6f;
 
-  // requests
-  float TargetCurrent = 1.5f;
-
   // measure ADC offset
   int16_t adc_os[3] = {0, 0, 0};
   for (int i = 0; i < 8; i++) {
@@ -278,7 +281,6 @@ int main(void)
   
   while (1)
   {
-    //LL_mDelay(20);
     lastMicros = micros;
     micros = TIM2->CNT;
     dt = (micros - lastMicros) * 1e-6f;
@@ -358,7 +360,7 @@ int main(void)
     I_d = I_a * cos_elec_position + I_b * sin_elec_position;
     I_q = I_b * cos_elec_position - I_a * sin_elec_position;
     // PI controllers on Q and D
-    cmd_d = PID_update(&PID_I_d, I_d, 25.0f, dt) * 0.5;
+    cmd_d = PID_update(&PID_I_d, I_d, TargetFieldWk, dt) * 0.5;
     cmd_q = PID_update(&PID_I_q, I_q, TargetCurrent, dt)* 0.57;
     // Inverse Park transform
     sSVPWM.fUal = cmd_d * cos_elec_position - cmd_q * sin_elec_position;
@@ -387,6 +389,7 @@ int main(void)
     // printCANBus(printBuffer);
     // sprintf(printBuffer, "U: %6ld, V: %6ld, W: %6ld, I_d: %.03f, cmd_d: %.03f, I_q: %.03f, cmd_q: %.03f\n", duty_u, duty_v, duty_w, I_d, cmd_d, I_q, cmd_q);
     // printCANBus(printBuffer);
+    // LL_mDelay(50);
   }
   /* USER CODE END 3 */
 }
@@ -524,6 +527,24 @@ int32_t lookupTbl(const int32_t* source, const int32_t* target, const uint32_t s
     middle = (left + right) >> 1;
   }
   return (value - source[left]) * (target[right] - target[left]) / (source[right] - source[left]) + target[left];
+}
+
+void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
+{
+  if((RxFifo0ITs & FDCAN_IT_RX_FIFO0_NEW_MESSAGE) != 0)
+  {
+    /* Retrieve Rx messages from RX FIFO0 */
+    if (HAL_FDCAN_GetRxMessage(hfdcan, FDCAN_RX_FIFO0, &RxHeader, RxData) != HAL_OK)
+    {
+      Error_Handler();
+    }
+    if (RxHeader.Identifier == CAN_CMD_ID) {
+      int16_t AC_current_raw = (int16_t)RxData[0] << 8;
+      AC_current_raw += RxData[1];
+      TargetCurrent = AC_current_raw * 0.01f;
+      TargetFieldWk = RxData[6] * 0.1f;
+    }
+  }
 }
 
 /* USER CODE END 4 */
