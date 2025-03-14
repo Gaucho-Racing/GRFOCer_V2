@@ -1,5 +1,0 @@
-C:/SynologyDrive/University/GauchoRacing/GR25/MotorController/FirmwareVer2A/build/Release/CMakeFiles/FirmwareVer2A.dir
-C:/SynologyDrive/University/GauchoRacing/GR25/MotorController/FirmwareVer2A/build/Release/CMakeFiles/edit_cache.dir
-C:/SynologyDrive/University/GauchoRacing/GR25/MotorController/FirmwareVer2A/build/Release/CMakeFiles/rebuild_cache.dir
-C:/SynologyDrive/University/GauchoRacing/GR25/MotorController/FirmwareVer2A/build/Release/cmake/stm32cubemx/CMakeFiles/edit_cache.dir
-C:/SynologyDrive/University/GauchoRacing/GR25/MotorController/FirmwareVer2A/build/Release/cmake/stm32cubemx/CMakeFiles/rebuild_cache.dir

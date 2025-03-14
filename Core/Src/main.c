@@ -32,7 +32,6 @@
 #include <stdio.h>
 #include <math.h>
 #include <string.h>
-#include "PID.h"
 #include "svpwm.h"
 /* USER CODE END Includes */
 
@@ -46,8 +45,8 @@
 #define SYSTICK_LOAD (SystemCoreClock/1000000U)
 #define SYSTICK_DELAY_CALIB (SYSTICK_LOAD >> 1)
 
-#define PI 3.14159265358979323846f
-#define PI_2o3 2.0943951023931953f
+#define PI 3.14159265358979323f
+#define PI_2 6.283185307179586f
 
 #define U_TIMER LL_HRTIM_TIMER_B
 #define V_TIMER LL_HRTIM_TIMER_F
@@ -112,6 +111,11 @@ uint8_t TxData[8];
 
 char printBuffer[1024];
 
+// Motor variables
+int32_t motor_PhysPosition;
+float motor_ElecPosition;
+float U_current, V_current, W_current;
+int32_t KTY_Temperature;
 #ifdef USE_EMRAX_MOTOR
 uint32_t Encoder_os = 731; // encoder offset angle
 int32_t KTY_LookupR[] = {980,1030,1135,1247,1367,1495,1630,1772,1922,2000,2080,2245,2417,2597,2785,2980,3182,3392,3607,3817,3915,4008,4166,4280};
@@ -119,17 +123,40 @@ int32_t KTY_LookupT[] = {-55,-50,-40,-30,-20,-10,0,10,20,25,30,40,50,60,70,80,90
 uint16_t KTY_LookupSize = 24;
 #endif
 #ifdef USE_AMK_MOTOR
-uint32_t Encoder_os = 0;
+uint32_t Encoder_os = 100;
 int32_t KTY_LookupR[] = {359,391,424,460,498,538,581,603,626,672,722,773,826,882,940,1000,1062,1127,1194,1262,1334,1407,1482,1560,1640,1722,1807,1893,1982,2073,2166,2261,2357,2452,2542,2624};
 int32_t KTY_LookupT[] = {-40,-30,-20,-10,0,10,20,25,30,40,50,60,70,80,90,100,110,120,130,140,150,160,170,180,190,200,210,220,230,240,250,260,270,280,290,300};
 uint16_t KTY_LookupSize = 36;
 #endif
 
-PID PID_I_d, PID_I_q;
-
+// FOC variables
+float sin_elec_position, cos_elec_position;
+float I_a, I_b, I_q, I_d;
+float cmd_q = 0.0f, cmd_d = 0.0f;
+float integ_q = 0.0f, integ_d = 0.0f;
+float Kp_Iq = 0.01f, Ki_Iq = 0.01f;
+float Kp_Id = 0.01f, Ki_Id = 0.01f;
+float I_d_err, I_q_err;
 tSVPWM sSVPWM = SVPWM_DEFAULTS;
 volatile float TargetCurrent = 0.0f;
 volatile float TargetFieldWk = 0.0f;
+
+// MOSFET & gate driver variables
+int32_t MOSFET_NTC_LookupR[] = {165, 182, 201, 223, 248, 276, 308, 344, 387, 435, 492, 557, 634, 724, 829, 954, 1101, 1277, 1488, 1741, 2048, 2421, 2877, 3438, 4134, 5000, 6087, 7462, 9213, 11462, 14374};
+int32_t MOSFET_NTC_LookupT[] = {150, 145, 140, 135, 130, 125, 120, 115, 110, 105, 100, 95, 90, 85, 80, 75, 70, 65, 60, 55, 50, 45, 40, 35, 30, 25, 20, 15, 10, 5, 0};
+uint16_t MOSFET_NTC_LookupSize = 31;
+uint8_t driver_RDY = 0; // format: |NA|NA|UH|UL|VH|VL|WH|WL|
+uint8_t driver_OK = 0;  // format: |NA|NA|UH|UL|VH|VL|WH|WL|
+int32_t duty_u, duty_v, duty_w;
+uint8_t U_temp, V_temp, W_temp;
+uint32_t NTC_period, NTC_dutyCycle, NTC_Resistance;
+
+// ADC variables
+int16_t adc_os[3] = {0, 0, 0};
+
+// timing stuff
+uint32_t micros = 0, lastMicros = 0;
+float dt = 1e-4f;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -164,7 +191,7 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
-
+  
   /* USER CODE END Init */
 
   /* Configure the system clock */
@@ -224,8 +251,14 @@ int main(void)
 
   // Enable TIM1, TIM15, and TIM5 (MOSFET temperture PWM signal)
   LL_TIM_EnableCounter(TIM1);
+  LL_TIM_CC_EnableChannel(TIM1, LL_TIM_CHANNEL_CH1);
+  LL_TIM_CC_EnableChannel(TIM1, LL_TIM_CHANNEL_CH2);
   LL_TIM_EnableCounter(TIM15);
+  LL_TIM_CC_EnableChannel(TIM15, LL_TIM_CHANNEL_CH1);
+  LL_TIM_CC_EnableChannel(TIM15, LL_TIM_CHANNEL_CH2);
   LL_TIM_EnableCounter(TIM5);
+  LL_TIM_CC_EnableChannel(TIM5, LL_TIM_CHANNEL_CH1);
+  LL_TIM_CC_EnableChannel(TIM5, LL_TIM_CHANNEL_CH2);
 
   // Enable HRTIM (gate drive signals)
   writePwm(U_TIMER, 0);
@@ -240,35 +273,15 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  // Motor variables
-  int32_t motor_PhysPosition;
-  float motor_ElecPosition;
-  float U_current, V_current, W_current;
-  int32_t KTY_Temperature;
-  // FOC variables
-  PID_setParams(&PID_I_q, 0.0f, 0.01f, 0.0f);
-  PID_setParams(&PID_I_d, 0.0f, 0.01f, 0.0f);
+  // FOC setup
   sSVPWM.enInType = AlBe;  // set the input type
   sSVPWM.fUdc = 1.0f;    // set the DC-Link voltage in Volts
-  sSVPWM.fUdcCCRval = 64000; // set the Max value of counter compare register which equal to DC-Link voltage
-  float sin_elec_position, cos_elec_position;
-  float I_a, I_b, I_q, I_d;
-  float cmd_q, cmd_d;
+  sSVPWM.fUdcCCRval = 64000.0f; // set the Max value of counter compare register which equal to DC-Link voltage
 
-  // Gate driver variables
-  // format: |NA|NA|UH|UL|VH|VL|WH|WL|
-  uint8_t driver_RDY = 0;
-  uint8_t driver_OK = 0;
+  // Gate driver setup
   resetGateDriver();
-  int32_t duty_u, duty_v, duty_w;
-
-  // timing stuff
-  uint32_t micros = TIM2->CNT;
-  uint32_t lastMicros = 0;
-  float dt = (micros - lastMicros) * 1e-6f;
 
   // measure ADC offset
-  int16_t adc_os[3] = {0, 0, 0};
   for (int i = 0; i < 8; i++) {
     LL_mDelay(1);
     adc_os[0] += adc_data[0];
@@ -278,7 +291,7 @@ int main(void)
   adc_os[0] = adc_os[0] >> 3;
   adc_os[1] = adc_os[1] >> 3;
   adc_os[2] = adc_os[2] >> 3;
-  
+
   while (1)
   {
     lastMicros = micros;
@@ -344,6 +357,19 @@ int main(void)
     I_b = 0.5773502691896257f * (V_current - W_current);
     // calculate motor temperature
     KTY_Temperature = lookupTbl(KTY_LookupR, KTY_LookupT, KTY_LookupSize, adc_data[3] >> 1);
+    // measure MOSFETs temperature
+    NTC_period    = LL_TIM_OC_GetCompareCH2(TIM1);
+    NTC_dutyCycle = LL_TIM_OC_GetCompareCH1(TIM1);
+    NTC_Resistance = 24631 * NTC_dutyCycle / NTC_period - 4700;
+    U_temp = lookupTbl(MOSFET_NTC_LookupR, MOSFET_NTC_LookupT, MOSFET_NTC_LookupSize, NTC_Resistance);
+    NTC_period    = LL_TIM_OC_GetCompareCH1(TIM15);
+    NTC_dutyCycle = LL_TIM_OC_GetCompareCH2(TIM15);
+    NTC_Resistance = 24631 * (NTC_period - NTC_dutyCycle) / NTC_period - 4700;
+    V_temp = lookupTbl(MOSFET_NTC_LookupR, MOSFET_NTC_LookupT, MOSFET_NTC_LookupSize, NTC_Resistance);
+    NTC_period    = LL_TIM_OC_GetCompareCH1(TIM5);
+    NTC_dutyCycle = LL_TIM_OC_GetCompareCH2(TIM5);
+    NTC_Resistance = 24631 * (NTC_period - NTC_dutyCycle) / NTC_period - 4700;
+    W_temp = lookupTbl(MOSFET_NTC_LookupR, MOSFET_NTC_LookupT, MOSFET_NTC_LookupSize, NTC_Resistance);
 
     while (!LL_SPI_IsActiveFlag_RXNE(SPI1));
     buf |= LL_SPI_ReceiveData16(SPI1) >> 8;
@@ -351,29 +377,47 @@ int main(void)
     buf |= ((uint32_t)LL_SPI_ReceiveData16(SPI1)) << 8;
     #endif
 
+    uint32_t FOC_start_micros, FOC_end_micros, FOC_micros;
+    uint32_t time1, time2, time3, time4;
+    FOC_start_micros = TIM2->CNT;
     motor_PhysPosition = N_STEP_ENCODER-1 - (buf & (N_STEP_ENCODER - 1));
-    motor_ElecPosition = fmodf((float)(motor_PhysPosition + Encoder_os) / N_STEP_ENCODER * N_POLES, 1.0f) * PI * 2.0f; // radians
+    //motor_ElecPosition = fmodf((float)(motor_PhysPosition + Encoder_os) / N_STEP_ENCODER * N_POLES, 1.0f) * PI * 2.0f; // radians
+    motor_ElecPosition = (float)((motor_PhysPosition + Encoder_os) % (N_STEP_ENCODER / N_POLES)) / (N_STEP_ENCODER / N_POLES) * PI_2;
+    time1 = TIM2->CNT - FOC_start_micros;
     // FOC
     sin_elec_position = sinf(motor_ElecPosition);
     cos_elec_position = cosf(motor_ElecPosition);
     // Park transform
     I_d = I_a * cos_elec_position + I_b * sin_elec_position;
     I_q = I_b * cos_elec_position - I_a * sin_elec_position;
+    time2 = TIM2->CNT - FOC_start_micros;
     // PI controllers on Q and D
-    cmd_d = PID_update(&PID_I_d, I_d, TargetFieldWk, dt) * 0.5;
-    cmd_q = PID_update(&PID_I_q, I_q, TargetCurrent, dt)* 0.57;
+    I_d_err = TargetFieldWk - I_d;
+    I_q_err = TargetCurrent - I_q;
+    integ_d += I_d_err * Ki_Id;
+    integ_d = (integ_d > 0.5f)  ?  0.5f : integ_d;
+    integ_d = (integ_d < -0.5f) ? -0.5f : integ_d;
+    cmd_d = I_d_err * Kp_Id + integ_d;
+    integ_q += I_q_err * Ki_Iq;
+    integ_q = (integ_q > 0.57f)  ?  0.57f : integ_q;
+    integ_q = (integ_q < -0.57f) ? -0.57f : integ_q;
+    cmd_q = I_q_err * Kp_Iq + integ_q;
     // Inverse Park transform
     sSVPWM.fUal = cmd_d * cos_elec_position - cmd_q * sin_elec_position;
     sSVPWM.fUbe = cmd_q * cos_elec_position + cmd_d * sin_elec_position;
+    time3 = TIM2->CNT - FOC_start_micros;
     // Inverse Clarke transform
     sSVPWM.m_calc(&sSVPWM);
+    time4 = TIM2->CNT - FOC_start_micros;
     // Update duty cycle
     duty_u = sSVPWM.fCCRA;
     duty_v = sSVPWM.fCCRB;
     duty_w = sSVPWM.fCCRC;
-    writePwm(U_TIMER, duty_u);
-    writePwm(V_TIMER, duty_v);
-    writePwm(W_TIMER, duty_w);
+    writePwm(U_TIMER, sSVPWM.fCCRA);
+    writePwm(V_TIMER, sSVPWM.fCCRB);
+    writePwm(W_TIMER, sSVPWM.fCCRC);
+    FOC_end_micros = TIM2->CNT;
+    FOC_micros = FOC_end_micros - FOC_start_micros;
     
 
     /* USER CODE END WHILE */
