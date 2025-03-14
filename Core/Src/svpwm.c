@@ -73,7 +73,8 @@ void tSVPWM_calc(tSVPWM* ptSVPWM)
 	uint8_t	u8Sector;
 	float	fMaxUs, fScaledUs, fBeta, fTb1, fTb2, afTi[4];
 	
-	fMaxUs = ptSVPWM->fUdc * (1.0f/sqrtf(3.0f));
+	//fMaxUs = ptSVPWM->fUdc * (1.0f/sqrtf(3.0f));
+  fMaxUs = 0.5773502691896258f;
 	
 	switch(ptSVPWM->enInType)
 	{
@@ -95,7 +96,8 @@ void tSVPWM_calc(tSVPWM* ptSVPWM)
 	
 	ptSVPWM->fAngRad += M_Pi;
 	
-	u8Sector = (uint8_t)(ptSVPWM->fAngRad * (1.0f/M_Pi_3));
+	//u8Sector = (uint8_t)(ptSVPWM->fAngRad * (1.0f/M_Pi_3));
+  u8Sector = (uint8_t)(ptSVPWM->fAngRad * 0.9549296585513721f);
 	
 	fBeta = ptSVPWM->fAngRad - M_Pi_3 * u8Sector;
 	

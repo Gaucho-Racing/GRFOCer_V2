@@ -275,7 +275,7 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   // FOC setup
   sSVPWM.enInType = AlBe;  // set the input type
-  sSVPWM.fUdc = 1.0f;    // set the DC-Link voltage in Volts
+  sSVPWM.fUdc = 1.0f;    // Don't changes this, the library is modified to run faster and this does nothing
   sSVPWM.fUdcCCRval = 64000.0f; // set the Max value of counter compare register which equal to DC-Link voltage
 
   // Gate driver setup
@@ -378,19 +378,17 @@ int main(void)
     #endif
 
     uint32_t FOC_start_micros, FOC_end_micros, FOC_micros;
-    uint32_t time1, time2, time3, time4;
+    uint32_t time1, time2, time3;
     FOC_start_micros = TIM2->CNT;
     motor_PhysPosition = N_STEP_ENCODER-1 - (buf & (N_STEP_ENCODER - 1));
     //motor_ElecPosition = fmodf((float)(motor_PhysPosition + Encoder_os) / N_STEP_ENCODER * N_POLES, 1.0f) * PI * 2.0f; // radians
     motor_ElecPosition = (float)((motor_PhysPosition + Encoder_os) % (N_STEP_ENCODER / N_POLES)) / (N_STEP_ENCODER / N_POLES) * PI_2;
-    time1 = TIM2->CNT - FOC_start_micros;
     // FOC
     sin_elec_position = sinf(motor_ElecPosition);
     cos_elec_position = cosf(motor_ElecPosition);
     // Park transform
     I_d = I_a * cos_elec_position + I_b * sin_elec_position;
     I_q = I_b * cos_elec_position - I_a * sin_elec_position;
-    time2 = TIM2->CNT - FOC_start_micros;
     // PI controllers on Q and D
     I_d_err = TargetFieldWk - I_d;
     I_q_err = TargetCurrent - I_q;
@@ -405,14 +403,15 @@ int main(void)
     // Inverse Park transform
     sSVPWM.fUal = cmd_d * cos_elec_position - cmd_q * sin_elec_position;
     sSVPWM.fUbe = cmd_q * cos_elec_position + cmd_d * sin_elec_position;
-    time3 = TIM2->CNT - FOC_start_micros;
+    time1 = TIM2->CNT - FOC_start_micros;
     // Inverse Clarke transform
     sSVPWM.m_calc(&sSVPWM);
-    time4 = TIM2->CNT - FOC_start_micros;
+    time2 = TIM2->CNT - FOC_start_micros;
     // Update duty cycle
     duty_u = sSVPWM.fCCRA;
     duty_v = sSVPWM.fCCRB;
     duty_w = sSVPWM.fCCRC;
+    time3 = TIM2->CNT - FOC_start_micros;
     writePwm(U_TIMER, sSVPWM.fCCRA);
     writePwm(V_TIMER, sSVPWM.fCCRB);
     writePwm(W_TIMER, sSVPWM.fCCRC);
