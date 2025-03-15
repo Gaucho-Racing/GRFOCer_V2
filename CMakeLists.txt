@@ -7,6 +7,10 @@ cmake_minimum_required(VERSION 3.22)
 # User is free to modify the file as much as necessary
 #
 
+include_directories(${CMAKE_SOURCE_DIR}/Drivers/CMSIS/Include)
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mfpu=fpv4-sp-d16 -mfloat-abi=hard")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -ffast-math -funsafe-math-optimizations")
+
 # Setup compiler settings
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -39,22 +43,26 @@ add_executable(${CMAKE_PROJECT_NAME})
 
 # Add STM32CubeMX generated sources
 add_subdirectory(cmake/stm32cubemx)
+# add CMSIS-DSP library
+add_subdirectory(${CMAKE_SOURCE_DIR}/Drivers/CMSIS/DSP/Source)
 
 # Link directories setup
 target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined library search paths
+    ${CMAKE_SOURCE_DIR}/Drivers/CMSIS/DSP/Include
 )
 
 # Add sources to executable
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user sources here
-    Core/Src/PID.c
-    Core/Src/svpwm.c
+    ${CMAKE_SOURCE_DIR}/Drivers/CMSIS/DSP/Source/
 )
 
 # Add include paths
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined include paths
+    ${CMAKE_SOURCE_DIR}/Drivers/CMSIS/Include
+    ${CMAKE_SOURCE_DIR}/Drivers/CMSIS/DSP/Include
 )
 
 # Add project symbols (macros)
@@ -67,6 +75,8 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
     stm32cubemx
 
     # Add user defined libraries
+    CMSISDSP
+    m
 )
 
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -u _printf_float")

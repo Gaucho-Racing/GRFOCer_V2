@@ -1,0 +1,218 @@
+{
+	"inputs" : 
+	[
+		{
+			"path" : "CMakeLists.txt"
+		},
+		{
+			"path" : "cmake/gcc-arm-none-eabi.cmake"
+		},
+		{
+			"isGenerated" : true,
+			"path" : "build/Debug/CMakeFiles/3.30.3/CMakeSystem.cmake"
+		},
+		{
+			"path" : "cmake/gcc-arm-none-eabi.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Program Files/CMake/share/cmake-3.30/Modules/CMakeSystemSpecificInitialize.cmake"
+		},
+		{
+			"isGenerated" : true,
+			"path" : "build/Debug/CMakeFiles/3.30.3/CMakeCCompiler.cmake"
+		},
+		{
+			"isGenerated" : true,
+			"path" : "build/Debug/CMakeFiles/3.30.3/CMakeASMCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Program Files/CMake/share/cmake-3.30/Modules/CMakeSystemSpecificInformation.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Program Files/CMake/share/cmake-3.30/Modules/CMakeGenericSystem.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Program Files/CMake/share/cmake-3.30/Modules/CMakeInitializeConfigs.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Program Files/CMake/share/cmake-3.30/Modules/Platform/Generic.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Program Files/CMake/share/cmake-3.30/Modules/CMakeCInformation.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Program Files/CMake/share/cmake-3.30/Modules/CMakeLanguageInformation.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Program Files/CMake/share/cmake-3.30/Modules/Compiler/GNU-C.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Program Files/CMake/share/cmake-3.30/Modules/Compiler/GNU.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Program Files/CMake/share/cmake-3.30/Modules/Compiler/CMakeCommonCompilerMacros.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Program Files/CMake/share/cmake-3.30/Modules/Platform/Generic.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Program Files/CMake/share/cmake-3.30/Modules/CMakeCommonLanguageInclude.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Program Files/CMake/share/cmake-3.30/Modules/CMakeASMInformation.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Program Files/CMake/share/cmake-3.30/Modules/Compiler/GNU-ASM.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Program Files/CMake/share/cmake-3.30/Modules/Compiler/GNU.cmake"
+		},
+		{
+			"isGenerated" : true,
+			"path" : "build/Debug/CMakeFiles/3.30.3/CMakeCXXCompiler.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Program Files/CMake/share/cmake-3.30/Modules/CMakeCXXInformation.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Program Files/CMake/share/cmake-3.30/Modules/CMakeLanguageInformation.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Program Files/CMake/share/cmake-3.30/Modules/Compiler/GNU-CXX.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Program Files/CMake/share/cmake-3.30/Modules/Compiler/GNU.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Program Files/CMake/share/cmake-3.30/Modules/Platform/Generic.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Program Files/CMake/share/cmake-3.30/Modules/CMakeCommonLanguageInclude.cmake"
+		},
+		{
+			"path" : "cmake/stm32cubemx/CMakeLists.txt"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Program Files/CMake/share/cmake-3.30/Modules/CMakeASMInformation.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Program Files/CMake/share/cmake-3.30/Modules/Compiler/GNU-ASM.cmake"
+		},
+		{
+			"isCMake" : true,
+			"isExternal" : true,
+			"path" : "C:/Program Files/CMake/share/cmake-3.30/Modules/Compiler/GNU.cmake"
+		},
+		{
+			"path" : "Middlewares/CMSIS/DSP/Source/CMakeLists.txt"
+		},
+		{
+			"path" : "Middlewares/CMSIS/DSP/Source/BasicMathFunctions/Config.cmake"
+		},
+		{
+			"path" : "Middlewares/CMSIS/DSP/Source/ComplexMathFunctions/Config.cmake"
+		},
+		{
+			"path" : "Middlewares/CMSIS/DSP/Source/QuaternionMathFunctions/Config.cmake"
+		},
+		{
+			"path" : "Middlewares/CMSIS/DSP/Source/ControllerFunctions/Config.cmake"
+		},
+		{
+			"path" : "Middlewares/CMSIS/DSP/Source/FastMathFunctions/Config.cmake"
+		},
+		{
+			"path" : "Middlewares/CMSIS/DSP/Source/FilteringFunctions/Config.cmake"
+		},
+		{
+			"path" : "Middlewares/CMSIS/DSP/Source/MatrixFunctions/Config.cmake"
+		},
+		{
+			"path" : "Middlewares/CMSIS/DSP/Source/StatisticsFunctions/Config.cmake"
+		},
+		{
+			"path" : "Middlewares/CMSIS/DSP/Source/SupportFunctions/Config.cmake"
+		},
+		{
+			"path" : "Middlewares/CMSIS/DSP/Source/TransformFunctions/Config.cmake"
+		},
+		{
+			"path" : "Middlewares/CMSIS/DSP/Source/CommonTables/Config.cmake"
+		},
+		{
+			"path" : "Middlewares/CMSIS/DSP/Source/SVMFunctions/Config.cmake"
+		},
+		{
+			"path" : "Middlewares/CMSIS/DSP/Source/BayesFunctions/Config.cmake"
+		},
+		{
+			"path" : "Middlewares/CMSIS/DSP/Source/DistanceFunctions/Config.cmake"
+		},
+		{
+			"path" : "Middlewares/CMSIS/DSP/Source/InterpolationFunctions/Config.cmake"
+		},
+		{
+			"path" : "Middlewares/CMSIS/DSP/Source/WindowFunctions/Config.cmake"
+		},
+		{
+			"path" : "Middlewares/CMSIS/DSP/Source/configDsp.cmake"
+		}
+	],
+	"kind" : "cmakeFiles",
+	"paths" : 
+	{
+		"build" : "C:/Users/davor/SynologyDrive/SynologyDrive/University/GauchoRacing/GR25/MotorController/FirmwareVer2A/build/Debug",
+		"source" : "C:/Users/davor/SynologyDrive/SynologyDrive/University/GauchoRacing/GR25/MotorController/FirmwareVer2A"
+	},
+	"version" : 
+	{
+		"major" : 1,
+		"minor" : 1
+	}
+}

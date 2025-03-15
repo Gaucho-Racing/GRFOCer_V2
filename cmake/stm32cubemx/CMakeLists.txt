@@ -28,7 +28,6 @@ target_sources(stm32cubemx INTERFACE
     ../../Core/Src/dma.c
     ../../Core/Src/fdcan.c
     ../../Core/Src/hrtim.c
-    ../../Core/Src/usart.c
     ../../Core/Src/spi.c
     ../../Core/Src/tim.c
     ../../Core/Src/stm32g4xx_it.c
@@ -54,8 +53,6 @@ target_sources(stm32cubemx INTERFACE
     ../../Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_cortex.c
     ../../Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_fdcan.c
     ../../Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_ll_hrtim.c
-    ../../Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_ll_lpuart.c
-    ../../Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_ll_rcc.c
     ../../Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_ll_spi.c
     ../../Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_tim.c
     ../../Drivers/STM32G4xx_HAL_Driver/Src/stm32g4xx_hal_tim_ex.c

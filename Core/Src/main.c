@@ -22,7 +22,6 @@
 #include "dma.h"
 #include "fdcan.h"
 #include "hrtim.h"
-#include "usart.h"
 #include "spi.h"
 #include "tim.h"
 #include "gpio.h"
@@ -32,7 +31,7 @@
 #include <stdio.h>
 #include <math.h>
 #include <string.h>
-#include "svpwm.h"
+#include "arm_math.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -46,7 +45,10 @@
 #define SYSTICK_DELAY_CALIB (SYSTICK_LOAD >> 1)
 
 #define PI 3.14159265358979323f
-#define PI_2 6.283185307179586f
+#define PIx2 6.283185307179586f
+#define PIo3 1.047197551196598f
+#define sqrt3_1o 0.5773502691896258f
+#define PI_3o 0.9549296585513721f
 
 #define U_TIMER LL_HRTIM_TIMER_B
 #define V_TIMER LL_HRTIM_TIMER_F
@@ -133,13 +135,26 @@ uint16_t KTY_LookupSize = 36;
 float sin_elec_position, cos_elec_position;
 float I_a, I_b, I_q, I_d;
 float cmd_q = 0.0f, cmd_d = 0.0f;
+float cmd_a = 0.0f, cmd_b = 0.0f;
 float integ_q = 0.0f, integ_d = 0.0f;
 float Kp_Iq = 0.01f, Ki_Iq = 0.01f;
 float Kp_Id = 0.01f, Ki_Id = 0.01f;
 float I_d_err, I_q_err;
-tSVPWM sSVPWM = SVPWM_DEFAULTS;
 volatile float TargetCurrent = 0.0f;
 volatile float TargetFieldWk = 0.0f;
+const uint8_t SVPWM_PermuataionMatrix[6][3] = {	
+	{ 1, 2, 0 },
+	{ 3, 1, 0 },
+	{ 0, 1, 2 },
+	{ 0, 3, 1 },
+	{ 2, 0, 1 },
+	{ 1, 0, 3 }
+};
+uint8_t	SVPWM_sector;
+float SVPWM_mag, SVPWM_ang;
+float SVPWM_Ti[4];
+float SVPWM_Tb1, SVPWM_Tb2;
+float SVPWM_beta;
 
 // MOSFET & gate driver variables
 int32_t MOSFET_NTC_LookupR[] = {165, 182, 201, 223, 248, 276, 308, 344, 387, 435, 492, 557, 634, 724, 829, 954, 1101, 1277, 1488, 1741, 2048, 2421, 2877, 3438, 4134, 5000, 6087, 7462, 9213, 11462, 14374};
@@ -213,7 +228,6 @@ int main(void)
   MX_TIM5_Init();
   MX_TIM15_Init();
   MX_TIM2_Init();
-  MX_LPUART1_UART_Init();
   /* USER CODE BEGIN 2 */
   // Init DWT delay
   CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
@@ -273,11 +287,6 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  // FOC setup
-  sSVPWM.enInType = AlBe;  // set the input type
-  sSVPWM.fUdc = 1.0f;    // Don't changes this, the library is modified to run faster and this does nothing
-  sSVPWM.fUdcCCRval = 64000.0f; // set the Max value of counter compare register which equal to DC-Link voltage
-
   // Gate driver setup
   resetGateDriver();
 
@@ -377,15 +386,15 @@ int main(void)
     buf |= ((uint32_t)LL_SPI_ReceiveData16(SPI1)) << 8;
     #endif
 
-    uint32_t FOC_start_micros, FOC_end_micros, FOC_micros;
-    uint32_t time1, time2, time3;
-    FOC_start_micros = TIM2->CNT;
+
     motor_PhysPosition = N_STEP_ENCODER-1 - (buf & (N_STEP_ENCODER - 1));
+    LL_GPIO_SetOutputPin(GPIOC, LL_GPIO_PIN_0);
     //motor_ElecPosition = fmodf((float)(motor_PhysPosition + Encoder_os) / N_STEP_ENCODER * N_POLES, 1.0f) * PI * 2.0f; // radians
-    motor_ElecPosition = (float)((motor_PhysPosition + Encoder_os) % (N_STEP_ENCODER / N_POLES)) / (N_STEP_ENCODER / N_POLES) * PI_2;
+    motor_ElecPosition = (float)((motor_PhysPosition + Encoder_os) % (N_STEP_ENCODER / N_POLES)) / (N_STEP_ENCODER / N_POLES) * PIx2;
     // FOC
-    sin_elec_position = sinf(motor_ElecPosition);
-    cos_elec_position = cosf(motor_ElecPosition);
+    arm_sin_cos_f32(motor_ElecPosition, &sin_elec_position, &cos_elec_position);
+    // sin_elec_position = sinf(motor_ElecPosition);
+    // cos_elec_position = cosf(motor_ElecPosition);
     // Park transform
     I_d = I_a * cos_elec_position + I_b * sin_elec_position;
     I_q = I_b * cos_elec_position - I_a * sin_elec_position;
@@ -401,22 +410,29 @@ int main(void)
     integ_q = (integ_q < -0.57f) ? -0.57f : integ_q;
     cmd_q = I_q_err * Kp_Iq + integ_q;
     // Inverse Park transform
-    sSVPWM.fUal = cmd_d * cos_elec_position - cmd_q * sin_elec_position;
-    sSVPWM.fUbe = cmd_q * cos_elec_position + cmd_d * sin_elec_position;
-    time1 = TIM2->CNT - FOC_start_micros;
+    cmd_a = cmd_d * cos_elec_position - cmd_q * sin_elec_position;
+    cmd_b = cmd_q * cos_elec_position + cmd_d * sin_elec_position;
     // Inverse Clarke transform
-    sSVPWM.m_calc(&sSVPWM);
-    time2 = TIM2->CNT - FOC_start_micros;
+    arm_sqrt_f32(cmd_a*cmd_a + cmd_b*cmd_b, &SVPWM_mag);
+    arm_atan2_f32(cmd_b, cmd_a, &SVPWM_ang);
+    SVPWM_ang += PI;
+    SVPWM_mag = (SVPWM_mag > sqrt3_1o) ? sqrt3_1o : SVPWM_mag;
+    SVPWM_sector = (uint8_t)(SVPWM_ang * PI_3o);
+    SVPWM_beta = SVPWM_ang - PIo3 * SVPWM_sector;
+    SVPWM_Tb1 = SVPWM_mag * arm_sin_f32(PIo3 - SVPWM_beta);
+    SVPWM_Tb2 = SVPWM_mag * arm_sin_f32(SVPWM_beta);
+    SVPWM_Ti[0] = (1.0f - SVPWM_Tb1 - SVPWM_Tb2) * 0.5f;
+    SVPWM_Ti[1] = SVPWM_Tb1 + SVPWM_Tb2 + SVPWM_Ti[0];
+    SVPWM_Ti[2] = SVPWM_Tb2 + SVPWM_Ti[0];
+    SVPWM_Ti[3] = SVPWM_Tb1 + SVPWM_Ti[0];
     // Update duty cycle
-    duty_u = sSVPWM.fCCRA;
-    duty_v = sSVPWM.fCCRB;
-    duty_w = sSVPWM.fCCRC;
-    time3 = TIM2->CNT - FOC_start_micros;
-    writePwm(U_TIMER, sSVPWM.fCCRA);
-    writePwm(V_TIMER, sSVPWM.fCCRB);
-    writePwm(W_TIMER, sSVPWM.fCCRC);
-    FOC_end_micros = TIM2->CNT;
-    FOC_micros = FOC_end_micros - FOC_start_micros;
+    duty_u = SVPWM_Ti[SVPWM_PermuataionMatrix[SVPWM_sector][0]] * 64000.0f;
+    duty_v = SVPWM_Ti[SVPWM_PermuataionMatrix[SVPWM_sector][1]] * 64000.0f;
+    duty_w = SVPWM_Ti[SVPWM_PermuataionMatrix[SVPWM_sector][2]] * 64000.0f;
+    writePwm(U_TIMER, duty_u);
+    writePwm(V_TIMER, duty_v);
+    writePwm(W_TIMER, duty_w);
+    LL_GPIO_ResetOutputPin(GPIOC, LL_GPIO_PIN_0);
     
 
     /* USER CODE END WHILE */
