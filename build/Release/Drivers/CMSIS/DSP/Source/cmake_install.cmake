@@ -1,4 +1,4 @@
-# Install script for directory: C:/Users/davor/SynologyDrive/SynologyDrive/University/GauchoRacing/GR25/MotorController/FirmwareVer2A/Drivers/CMSIS/DSP/Source
+# Install script for directory: C:/SynologyDrive/University/GauchoRacing/GR25/MotorController/FirmwareVer2A/Drivers/CMSIS/DSP/Source
 
 # Set the install prefix
 if(NOT DEFINED CMAKE_INSTALL_PREFIX)

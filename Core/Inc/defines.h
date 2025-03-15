@@ -1,0 +1,35 @@
+#ifndef DEFINES_H
+#define DEFINES_H
+
+#define SYSTICK_LOAD (SystemCoreClock/1000000U)
+#define SYSTICK_DELAY_CALIB (SYSTICK_LOAD >> 1)
+
+#define PI 3.14159265358979323f
+#define PIx2 6.283185307179586f
+#define PIo3 1.047197551196598f
+#define sqrt3_1o 0.5773502691896258f
+#define PI_3o 0.9549296585513721f
+
+#define U_TIMER LL_HRTIM_TIMER_B
+#define V_TIMER LL_HRTIM_TIMER_F
+#define W_TIMER LL_HRTIM_TIMER_C
+
+#define GATE_DRIVER_RESET_US 1U
+#define deadTime 640
+
+// #define USE_EMRAX_MOTOR
+#define USE_AMK_MOTOR
+
+#ifdef USE_EMRAX_MOTOR
+#define N_STEP_ENCODER 8192U
+#define N_POLES 10U
+#endif
+#ifdef USE_AMK_MOTOR
+#define N_STEP_ENCODER 262144UL
+#define N_POLES 5U
+#endif
+
+#define CAN_CMD_ID 0x201708UL
+#define CAN_CFG_ID 0x201608UL
+
+#endif // DEFINES_H

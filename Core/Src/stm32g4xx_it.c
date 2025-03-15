@@ -22,6 +22,8 @@
 #include "stm32g4xx_it.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include <math.h>
+#include "defines.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -57,7 +59,31 @@
 /* External variables --------------------------------------------------------*/
 extern FDCAN_HandleTypeDef hfdcan2;
 /* USER CODE BEGIN EV */
+extern volatile int16_t adc_data[4];
+extern volatile int16_t adc_os[3];
+extern volatile float motor_ElecPosition;
+extern volatile int32_t motor_PhysPosition;
+extern volatile uint32_t Encoder_os;
+extern volatile float U_current, V_current, W_current;
+extern volatile float sin_elec_position, cos_elec_position;
+extern volatile float I_a, I_b, I_q, I_d;
+extern volatile float cmd_q, cmd_d;
+extern volatile float cmd_a, cmd_b;
+extern volatile float integ_q, integ_d;
+extern volatile float Kp_Iq, Ki_Iq;
+extern volatile float Kp_Id, Ki_Id;
+extern volatile float I_d_err, I_q_err;
+extern volatile float TargetCurrent;
+extern volatile float TargetFieldWk;
+extern volatile const uint8_t SVPWM_PermuataionMatrix[6][3];
+extern volatile uint8_t	SVPWM_sector;
+extern volatile float SVPWM_mag, SVPWM_ang;
+extern volatile float SVPWM_Ti[4];
+extern volatile float SVPWM_Tb1, SVPWM_Tb2;
+extern volatile float SVPWM_beta;
+extern volatile int32_t duty_u, duty_v, duty_w;
 
+extern void writePwm(uint32_t timer, int32_t duty);
 /* USER CODE END EV */
 
 /******************************************************************************/
@@ -224,6 +250,74 @@ void DMA1_Channel2_IRQHandler(void)
   /* USER CODE BEGIN DMA1_Channel2_IRQn 1 */
 
   /* USER CODE END DMA1_Channel2_IRQn 1 */
+}
+
+/**
+  * @brief This function handles HRTIM master timer global interrupt.
+  */
+void HRTIM1_Master_IRQHandler(void)
+{
+  /* USER CODE BEGIN HRTIM1_Master_IRQn 0 */
+  LL_HRTIM_ClearFlag_REP(HRTIM1, LL_HRTIM_TIMER_MASTER);
+  LL_GPIO_SetOutputPin(GPIOC, LL_GPIO_PIN_0);
+  // convert ADC values to phase current and motor temperature
+  U_current = -(adc_data[0] - adc_os[0]) / 13.33f;
+  V_current = -(adc_data[1] - adc_os[1]) / 13.33f;
+  W_current = -(adc_data[2] - adc_os[2]) / 13.33f;
+  // FOC
+  motor_ElecPosition = fmodf((float)(motor_PhysPosition + Encoder_os) / N_STEP_ENCODER * N_POLES, 1.0f) * PIx2; // radians
+  // motor_ElecPosition = (float)((motor_PhysPosition + Encoder_os) % (N_STEP_ENCODER / N_POLES)) / (N_STEP_ENCODER / N_POLES) * PIx2;
+  // arm_sin_cos_f32(motor_ElecPosition, &sin_elec_position, &cos_elec_position);
+  sin_elec_position = sinf(motor_ElecPosition);
+  cos_elec_position = cosf(motor_ElecPosition);
+  // Clarke transform
+  I_a = U_current * 0.66666667f - V_current * 0.33333333f - W_current * 0.33333333f;
+  I_b = 0.5773502691896257f * (V_current - W_current);
+  // Park transform
+  I_d = I_a * cos_elec_position + I_b * sin_elec_position;
+  I_q = I_b * cos_elec_position - I_a * sin_elec_position;
+  // PI controllers on Q and D
+  I_d_err = TargetFieldWk - I_d;
+  I_q_err = TargetCurrent - I_q;
+  integ_d += I_d_err * Ki_Id * 25e-6f;
+  integ_d = (integ_d > 0.5f)  ?  0.5f : integ_d;
+  integ_d = (integ_d < -0.5f) ? -0.5f : integ_d;
+  cmd_d = I_d_err * Kp_Id + integ_d;
+  integ_q += I_q_err * Ki_Iq * 25e-6f;
+  integ_q = (integ_q > 0.57f)  ?  0.57f : integ_q;
+  integ_q = (integ_q < -0.57f) ? -0.57f : integ_q;
+  cmd_q = I_q_err * Kp_Iq + integ_q;
+  // Inverse Park transform
+  cmd_a = cmd_d * cos_elec_position - cmd_q * sin_elec_position;
+  cmd_b = cmd_q * cos_elec_position + cmd_d * sin_elec_position;
+  // Inverse Clarke transform
+  // arm_sqrt_f32(cmd_a*cmd_a + cmd_b*cmd_b, &SVPWM_mag);
+  SVPWM_mag = hypotf(cmd_b, cmd_a);
+  // arm_atan2_f32(cmd_b, cmd_a, &SVPWM_ang);
+  SVPWM_ang = atan2f(cmd_b, cmd_a);
+  SVPWM_ang += PI;
+  SVPWM_mag = (SVPWM_mag > sqrt3_1o) ? sqrt3_1o : SVPWM_mag;
+  SVPWM_sector = (uint8_t)(SVPWM_ang * PI_3o);
+  SVPWM_beta = SVPWM_ang - PIo3 * SVPWM_sector;
+  SVPWM_Tb1 = SVPWM_mag * sinf(PIo3 - SVPWM_beta);
+  SVPWM_Tb2 = SVPWM_mag * sinf(SVPWM_beta);
+  SVPWM_Ti[0] = (1.0f - SVPWM_Tb1 - SVPWM_Tb2) * 0.5f;
+  SVPWM_Ti[1] = SVPWM_Tb1 + SVPWM_Tb2 + SVPWM_Ti[0];
+  SVPWM_Ti[2] = SVPWM_Tb2 + SVPWM_Ti[0];
+  SVPWM_Ti[3] = SVPWM_Tb1 + SVPWM_Ti[0];
+  // Update duty cycle
+  duty_u = SVPWM_Ti[SVPWM_PermuataionMatrix[SVPWM_sector][0]] * 64000.0f;
+  duty_v = SVPWM_Ti[SVPWM_PermuataionMatrix[SVPWM_sector][1]] * 64000.0f;
+  duty_w = SVPWM_Ti[SVPWM_PermuataionMatrix[SVPWM_sector][2]] * 64000.0f;
+  writePwm(U_TIMER, duty_u);
+  writePwm(V_TIMER, duty_v);
+  writePwm(W_TIMER, duty_w);
+  LL_GPIO_ResetOutputPin(GPIOC, LL_GPIO_PIN_0);
+  /* USER CODE END HRTIM1_Master_IRQn 0 */
+
+  /* USER CODE BEGIN HRTIM1_Master_IRQn 1 */
+
+  /* USER CODE END HRTIM1_Master_IRQn 1 */
 }
 
 /**

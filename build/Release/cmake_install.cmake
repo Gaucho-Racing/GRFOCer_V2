@@ -1,4 +1,4 @@
-# Install script for directory: C:/Users/davor/SynologyDrive/SynologyDrive/University/GauchoRacing/GR25/MotorController/FirmwareVer2A
+# Install script for directory: C:/SynologyDrive/University/GauchoRacing/GR25/MotorController/FirmwareVer2A
 
 # Set the install prefix
 if(NOT DEFINED CMAKE_INSTALL_PREFIX)
@@ -39,12 +39,12 @@ endif()
 
 if(NOT CMAKE_INSTALL_LOCAL_ONLY)
   # Include the install script for the subdirectory.
-  include("C:/Users/davor/SynologyDrive/SynologyDrive/University/GauchoRacing/GR25/MotorController/FirmwareVer2A/build/Release/cmake/stm32cubemx/cmake_install.cmake")
+  include("C:/SynologyDrive/University/GauchoRacing/GR25/MotorController/FirmwareVer2A/build/Release/cmake/stm32cubemx/cmake_install.cmake")
 endif()
 
 if(NOT CMAKE_INSTALL_LOCAL_ONLY)
   # Include the install script for the subdirectory.
-  include("C:/Users/davor/SynologyDrive/SynologyDrive/University/GauchoRacing/GR25/MotorController/FirmwareVer2A/build/Release/Drivers/CMSIS/DSP/Source/cmake_install.cmake")
+  include("C:/SynologyDrive/University/GauchoRacing/GR25/MotorController/FirmwareVer2A/build/Release/Drivers/CMSIS/DSP/Source/cmake_install.cmake")
 endif()
 
 if(CMAKE_INSTALL_COMPONENT)
@@ -62,6 +62,6 @@ endif()
 if(NOT CMAKE_INSTALL_LOCAL_ONLY)
   string(REPLACE ";" "\n" CMAKE_INSTALL_MANIFEST_CONTENT
        "${CMAKE_INSTALL_MANIFEST_FILES}")
-  file(WRITE "C:/Users/davor/SynologyDrive/SynologyDrive/University/GauchoRacing/GR25/MotorController/FirmwareVer2A/build/Release/${CMAKE_INSTALL_MANIFEST}"
+  file(WRITE "C:/SynologyDrive/University/GauchoRacing/GR25/MotorController/FirmwareVer2A/build/Release/${CMAKE_INSTALL_MANIFEST}"
      "${CMAKE_INSTALL_MANIFEST_CONTENT}")
 endif()

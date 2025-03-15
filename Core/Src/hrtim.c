@@ -36,6 +36,10 @@ void MX_HRTIM1_Init(void)
   /* Peripheral clock enable */
   LL_APB2_GRP1_EnableClock(LL_APB2_GRP1_PERIPH_HRTIM1);
 
+  /* HRTIM1 interrupt Init */
+  NVIC_SetPriority(HRTIM1_Master_IRQn, NVIC_EncodePriority(NVIC_GetPriorityGrouping(),0, 0));
+  NVIC_EnableIRQ(HRTIM1_Master_IRQn);
+
   /* USER CODE BEGIN HRTIM1_Init 1 */
 
   /* USER CODE END HRTIM1_Init 1 */

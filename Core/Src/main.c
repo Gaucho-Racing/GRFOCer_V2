@@ -32,6 +32,7 @@
 #include <math.h>
 #include <string.h>
 #include "arm_math.h"
+#include "defines.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -41,36 +42,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define SYSTICK_LOAD (SystemCoreClock/1000000U)
-#define SYSTICK_DELAY_CALIB (SYSTICK_LOAD >> 1)
 
-#define PI 3.14159265358979323f
-#define PIx2 6.283185307179586f
-#define PIo3 1.047197551196598f
-#define sqrt3_1o 0.5773502691896258f
-#define PI_3o 0.9549296585513721f
-
-#define U_TIMER LL_HRTIM_TIMER_B
-#define V_TIMER LL_HRTIM_TIMER_F
-#define W_TIMER LL_HRTIM_TIMER_C
-
-#define GATE_DRIVER_RESET_US 1U
-#define deadTime 640
-
-// #define USE_EMRAX_MOTOR
-#define USE_AMK_MOTOR
-
-#ifdef USE_EMRAX_MOTOR
-#define N_STEP_ENCODER 8192U
-#define N_POLES 10U
-#endif
-#ifdef USE_AMK_MOTOR
-#define N_STEP_ENCODER 262144UL
-#define N_POLES 5U
-#endif
-
-#define CAN_CMD_ID 0x201708UL
-#define CAN_CFG_ID 0x201608UL
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -104,7 +76,7 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-int16_t adc_data[4];
+volatile int16_t adc_data[4];
 
 FDCAN_RxHeaderTypeDef RxHeader;
 uint8_t RxData[8];
@@ -114,35 +86,35 @@ uint8_t TxData[8];
 char printBuffer[1024];
 
 // Motor variables
-int32_t motor_PhysPosition;
-float motor_ElecPosition;
-float U_current, V_current, W_current;
+volatile int32_t motor_PhysPosition;
+volatile float motor_ElecPosition;
+volatile float U_current, V_current, W_current;
 int32_t KTY_Temperature;
 #ifdef USE_EMRAX_MOTOR
-uint32_t Encoder_os = 731; // encoder offset angle
+volatile uint32_t Encoder_os = 731; // encoder offset angle
 int32_t KTY_LookupR[] = {980,1030,1135,1247,1367,1495,1630,1772,1922,2000,2080,2245,2417,2597,2785,2980,3182,3392,3607,3817,3915,4008,4166,4280};
 int32_t KTY_LookupT[] = {-55,-50,-40,-30,-20,-10,0,10,20,25,30,40,50,60,70,80,90,100,110,120,125,130,140,150};
 uint16_t KTY_LookupSize = 24;
 #endif
 #ifdef USE_AMK_MOTOR
-uint32_t Encoder_os = 100;
+volatile uint32_t Encoder_os = 0;
 int32_t KTY_LookupR[] = {359,391,424,460,498,538,581,603,626,672,722,773,826,882,940,1000,1062,1127,1194,1262,1334,1407,1482,1560,1640,1722,1807,1893,1982,2073,2166,2261,2357,2452,2542,2624};
 int32_t KTY_LookupT[] = {-40,-30,-20,-10,0,10,20,25,30,40,50,60,70,80,90,100,110,120,130,140,150,160,170,180,190,200,210,220,230,240,250,260,270,280,290,300};
 uint16_t KTY_LookupSize = 36;
 #endif
 
 // FOC variables
-float sin_elec_position, cos_elec_position;
-float I_a, I_b, I_q, I_d;
-float cmd_q = 0.0f, cmd_d = 0.0f;
-float cmd_a = 0.0f, cmd_b = 0.0f;
-float integ_q = 0.0f, integ_d = 0.0f;
-float Kp_Iq = 0.01f, Ki_Iq = 0.01f;
-float Kp_Id = 0.01f, Ki_Id = 0.01f;
-float I_d_err, I_q_err;
+volatile float sin_elec_position, cos_elec_position;
+volatile float I_a, I_b, I_q, I_d;
+volatile float cmd_q = 0.0f, cmd_d = 0.0f;
+volatile float cmd_a = 0.0f, cmd_b = 0.0f;
+volatile float integ_q = 0.0f, integ_d = 0.0f;
+volatile float Kp_Iq = 0.01f, Ki_Iq = 0.3f;
+volatile float Kp_Id = 0.01f, Ki_Id = 0.3f;
+volatile float I_d_err, I_q_err;
 volatile float TargetCurrent = 0.0f;
 volatile float TargetFieldWk = 0.0f;
-const uint8_t SVPWM_PermuataionMatrix[6][3] = {	
+volatile const uint8_t SVPWM_PermuataionMatrix[6][3] = {	
 	{ 1, 2, 0 },
 	{ 3, 1, 0 },
 	{ 0, 1, 2 },
@@ -150,11 +122,11 @@ const uint8_t SVPWM_PermuataionMatrix[6][3] = {
 	{ 2, 0, 1 },
 	{ 1, 0, 3 }
 };
-uint8_t	SVPWM_sector;
-float SVPWM_mag, SVPWM_ang;
-float SVPWM_Ti[4];
-float SVPWM_Tb1, SVPWM_Tb2;
-float SVPWM_beta;
+volatile uint8_t	SVPWM_sector;
+volatile float SVPWM_mag, SVPWM_ang;
+volatile float SVPWM_Ti[4];
+volatile float SVPWM_Tb1, SVPWM_Tb2;
+volatile float SVPWM_beta;
 
 // MOSFET & gate driver variables
 int32_t MOSFET_NTC_LookupR[] = {165, 182, 201, 223, 248, 276, 308, 344, 387, 435, 492, 557, 634, 724, 829, 954, 1101, 1277, 1488, 1741, 2048, 2421, 2877, 3438, 4134, 5000, 6087, 7462, 9213, 11462, 14374};
@@ -162,12 +134,12 @@ int32_t MOSFET_NTC_LookupT[] = {150, 145, 140, 135, 130, 125, 120, 115, 110, 105
 uint16_t MOSFET_NTC_LookupSize = 31;
 uint8_t driver_RDY = 0; // format: |NA|NA|UH|UL|VH|VL|WH|WL|
 uint8_t driver_OK = 0;  // format: |NA|NA|UH|UL|VH|VL|WH|WL|
-int32_t duty_u, duty_v, duty_w;
+volatile int32_t duty_u, duty_v, duty_w;
 uint8_t U_temp, V_temp, W_temp;
 uint32_t NTC_period, NTC_dutyCycle, NTC_Resistance;
 
 // ADC variables
-int16_t adc_os[3] = {0, 0, 0};
+volatile int16_t adc_os[3] = {2000, 2000, 2000};
 
 // timing stuff
 uint32_t micros = 0, lastMicros = 0;
@@ -283,10 +255,7 @@ int main(void)
   LL_HRTIM_OUTPUT_TF1|LL_HRTIM_OUTPUT_TF2|
   LL_HRTIM_OUTPUT_TC1|LL_HRTIM_OUTPUT_TC2);
   LL_HRTIM_TIM_CounterEnable(HRTIM1, LL_HRTIM_TIMER_MASTER|U_TIMER|V_TIMER|W_TIMER);
-  /* USER CODE END 2 */
 
-  /* Infinite loop */
-  /* USER CODE BEGIN WHILE */
   // Gate driver setup
   resetGateDriver();
 
@@ -300,6 +269,13 @@ int main(void)
   adc_os[0] = adc_os[0] >> 3;
   adc_os[1] = adc_os[1] >> 3;
   adc_os[2] = adc_os[2] >> 3;
+
+  // enable HRTIM master interrupt(FOC calculations)
+  LL_HRTIM_EnableIT_REP(HRTIM1, LL_HRTIM_TIMER_MASTER);
+  /* USER CODE END 2 */
+
+  /* Infinite loop */
+  /* USER CODE BEGIN WHILE */
 
   while (1)
   {
@@ -331,19 +307,6 @@ int main(void)
     LL_SPI_Enable(SPI1);
     LL_SPI_TransmitData16(SPI1, 0b0000011100U); // send mode 1: Encoder send position values
     uint32_t startTime = TIM2->CNT;
-    // This seems very messy but I have to do this to save time
-    // Do math while waiting for SPI to complete
-    // convert ADC values to phase current and motor temperature
-    U_current = -(adc_data[0] - adc_os[0]) / 13.33f;
-    V_current = -(adc_data[1] - adc_os[1]) / 13.33f;
-    W_current = -(adc_data[2] - adc_os[2]) / 13.33f;
-    // read gate driver status (FLT and RDY pins)
-    driver_RDY = (DRV_RDY_UH<<5) | (DRV_RDY_UL<<4) | (DRV_RDY_VH<<3) | (DRV_RDY_VL<<2) | (DRV_RDY_WH<<1) | DRV_RDY_WL;
-    driver_OK  = (DRV_FLT_UH<<5) | (DRV_FLT_UL<<4) | (DRV_FLT_VH<<3) | (DRV_FLT_VL<<2) | (DRV_FLT_WH<<1) | DRV_FLT_WL;
-    if ((driver_RDY & driver_OK) != 63){ // 0b00111111
-      disableGateDriver();
-    }
-
     while (LL_SPI_IsActiveFlag_BSY(SPI1)){
       if (TIM2->CNT - startTime > 20U) {
         printCANBus("timeout 1\n");
@@ -351,6 +314,7 @@ int main(void)
       }
     }
     LL_SPI_ReceiveData16(SPI1);
+
     ENDAT_DIR_Read;
     LL_SPI_Disable(SPI1);
     LL_SPI_SetDataWidth(SPI1, LL_SPI_DATAWIDTH_16BIT);
@@ -359,13 +323,23 @@ int main(void)
     LL_SPI_Enable(SPI1);
     LL_SPI_TransmitData16(SPI1, 0U);
     LL_SPI_TransmitData16(SPI1, 0U);
+    while (!LL_SPI_IsActiveFlag_RXNE(SPI1));
+    buf |= LL_SPI_ReceiveData16(SPI1) >> 8;
+    while (!LL_SPI_IsActiveFlag_RXNE(SPI1));
+    buf |= ((uint32_t)LL_SPI_ReceiveData16(SPI1)) << 8;
+    motor_PhysPosition = N_STEP_ENCODER-1 - (buf & (N_STEP_ENCODER - 1));
+    #endif
 
-    // again, do math while waiting for SPI
-    // Clarke transform
-    I_a = U_current * 0.66666667f - V_current * 0.33333333f - W_current * 0.33333333f;
-    I_b = 0.5773502691896257f * (V_current - W_current);
+    // read gate driver status (FLT and RDY pins)
+    driver_RDY = (DRV_RDY_UH<<5) | (DRV_RDY_UL<<4) | (DRV_RDY_VH<<3) | (DRV_RDY_VL<<2) | (DRV_RDY_WH<<1) | DRV_RDY_WL;
+    driver_OK  = (DRV_FLT_UH<<5) | (DRV_FLT_UL<<4) | (DRV_FLT_VH<<3) | (DRV_FLT_VL<<2) | (DRV_FLT_WH<<1) | DRV_FLT_WL;
+    if ((driver_RDY & driver_OK) != 63){ // 0b00111111
+      disableGateDriver();
+    }
+
     // calculate motor temperature
     KTY_Temperature = lookupTbl(KTY_LookupR, KTY_LookupT, KTY_LookupSize, adc_data[3] >> 1);
+
     // measure MOSFETs temperature
     NTC_period    = LL_TIM_OC_GetCompareCH2(TIM1);
     NTC_dutyCycle = LL_TIM_OC_GetCompareCH1(TIM1);
@@ -380,60 +354,7 @@ int main(void)
     NTC_Resistance = 24631 * (NTC_period - NTC_dutyCycle) / NTC_period - 4700;
     W_temp = lookupTbl(MOSFET_NTC_LookupR, MOSFET_NTC_LookupT, MOSFET_NTC_LookupSize, NTC_Resistance);
 
-    while (!LL_SPI_IsActiveFlag_RXNE(SPI1));
-    buf |= LL_SPI_ReceiveData16(SPI1) >> 8;
-    while (!LL_SPI_IsActiveFlag_RXNE(SPI1));
-    buf |= ((uint32_t)LL_SPI_ReceiveData16(SPI1)) << 8;
-    #endif
-
-
-    motor_PhysPosition = N_STEP_ENCODER-1 - (buf & (N_STEP_ENCODER - 1));
-    LL_GPIO_SetOutputPin(GPIOC, LL_GPIO_PIN_0);
-    //motor_ElecPosition = fmodf((float)(motor_PhysPosition + Encoder_os) / N_STEP_ENCODER * N_POLES, 1.0f) * PI * 2.0f; // radians
-    motor_ElecPosition = (float)((motor_PhysPosition + Encoder_os) % (N_STEP_ENCODER / N_POLES)) / (N_STEP_ENCODER / N_POLES) * PIx2;
-    // FOC
-    arm_sin_cos_f32(motor_ElecPosition, &sin_elec_position, &cos_elec_position);
-    // sin_elec_position = sinf(motor_ElecPosition);
-    // cos_elec_position = cosf(motor_ElecPosition);
-    // Park transform
-    I_d = I_a * cos_elec_position + I_b * sin_elec_position;
-    I_q = I_b * cos_elec_position - I_a * sin_elec_position;
-    // PI controllers on Q and D
-    I_d_err = TargetFieldWk - I_d;
-    I_q_err = TargetCurrent - I_q;
-    integ_d += I_d_err * Ki_Id;
-    integ_d = (integ_d > 0.5f)  ?  0.5f : integ_d;
-    integ_d = (integ_d < -0.5f) ? -0.5f : integ_d;
-    cmd_d = I_d_err * Kp_Id + integ_d;
-    integ_q += I_q_err * Ki_Iq;
-    integ_q = (integ_q > 0.57f)  ?  0.57f : integ_q;
-    integ_q = (integ_q < -0.57f) ? -0.57f : integ_q;
-    cmd_q = I_q_err * Kp_Iq + integ_q;
-    // Inverse Park transform
-    cmd_a = cmd_d * cos_elec_position - cmd_q * sin_elec_position;
-    cmd_b = cmd_q * cos_elec_position + cmd_d * sin_elec_position;
-    // Inverse Clarke transform
-    arm_sqrt_f32(cmd_a*cmd_a + cmd_b*cmd_b, &SVPWM_mag);
-    arm_atan2_f32(cmd_b, cmd_a, &SVPWM_ang);
-    SVPWM_ang += PI;
-    SVPWM_mag = (SVPWM_mag > sqrt3_1o) ? sqrt3_1o : SVPWM_mag;
-    SVPWM_sector = (uint8_t)(SVPWM_ang * PI_3o);
-    SVPWM_beta = SVPWM_ang - PIo3 * SVPWM_sector;
-    SVPWM_Tb1 = SVPWM_mag * arm_sin_f32(PIo3 - SVPWM_beta);
-    SVPWM_Tb2 = SVPWM_mag * arm_sin_f32(SVPWM_beta);
-    SVPWM_Ti[0] = (1.0f - SVPWM_Tb1 - SVPWM_Tb2) * 0.5f;
-    SVPWM_Ti[1] = SVPWM_Tb1 + SVPWM_Tb2 + SVPWM_Ti[0];
-    SVPWM_Ti[2] = SVPWM_Tb2 + SVPWM_Ti[0];
-    SVPWM_Ti[3] = SVPWM_Tb1 + SVPWM_Ti[0];
-    // Update duty cycle
-    duty_u = SVPWM_Ti[SVPWM_PermuataionMatrix[SVPWM_sector][0]] * 64000.0f;
-    duty_v = SVPWM_Ti[SVPWM_PermuataionMatrix[SVPWM_sector][1]] * 64000.0f;
-    duty_w = SVPWM_Ti[SVPWM_PermuataionMatrix[SVPWM_sector][2]] * 64000.0f;
-    writePwm(U_TIMER, duty_u);
-    writePwm(V_TIMER, duty_v);
-    writePwm(W_TIMER, duty_w);
-    LL_GPIO_ResetOutputPin(GPIOC, LL_GPIO_PIN_0);
-    
+    DELAY_US(10);
 
     /* USER CODE END WHILE */
 

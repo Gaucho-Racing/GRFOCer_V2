@@ -11,7 +11,7 @@
 						1,
 						2
 					],
-					"jsonFile" : "directory-.-Debug-d0094a50bb2071803777.json",
+					"jsonFile" : "directory-.-Release-d0094a50bb2071803777.json",
 					"minimumCMakeVersion" : 
 					{
 						"string" : "3.22"
@@ -25,7 +25,7 @@
 				},
 				{
 					"build" : "cmake/stm32cubemx",
-					"jsonFile" : "directory-cmake.stm32cubemx-Debug-a874d3cc84b5982fda2e.json",
+					"jsonFile" : "directory-cmake.stm32cubemx-Release-a874d3cc84b5982fda2e.json",
 					"minimumCMakeVersion" : 
 					{
 						"string" : "3.22"
@@ -35,22 +35,22 @@
 					"source" : "cmake/stm32cubemx"
 				},
 				{
-					"build" : "Middlewares/CMSIS/DSP/Source",
-					"jsonFile" : "directory-Middlewares.CMSIS.DSP.Source-Debug-a75a7a6a85a914c09316.json",
+					"build" : "Drivers/CMSIS/DSP/Source",
+					"jsonFile" : "directory-Drivers.CMSIS.DSP.Source-Release-bddb7032e215c0ab2590.json",
 					"minimumCMakeVersion" : 
 					{
 						"string" : "3.14"
 					},
 					"parentIndex" : 0,
 					"projectIndex" : 2,
-					"source" : "Middlewares/CMSIS/DSP/Source",
+					"source" : "Drivers/CMSIS/DSP/Source",
 					"targetIndexes" : 
 					[
 						0
 					]
 				}
 			],
-			"name" : "Debug",
+			"name" : "Release",
 			"projects" : 
 			[
 				{
@@ -94,15 +94,15 @@
 			[
 				{
 					"directoryIndex" : 2,
-					"id" : "CMSISDSP::@1241bcea53dd8e2d04ea",
-					"jsonFile" : "target-CMSISDSP-Debug-5822339b260cf12e5ad2.json",
+					"id" : "CMSISDSP::@b9d5bb0b56e96cb34529",
+					"jsonFile" : "target-CMSISDSP-Release-802b4465933f7d856c34.json",
 					"name" : "CMSISDSP",
 					"projectIndex" : 2
 				},
 				{
 					"directoryIndex" : 0,
 					"id" : "FirmwareVer2A::@6890427a1f51a3e7e1df",
-					"jsonFile" : "target-FirmwareVer2A-Debug-5f87ad711d0591c47315.json",
+					"jsonFile" : "target-FirmwareVer2A-Release-ddf3ec7acf028b25a6b6.json",
 					"name" : "FirmwareVer2A",
 					"projectIndex" : 0
 				}
@@ -112,8 +112,8 @@
 	"kind" : "codemodel",
 	"paths" : 
 	{
-		"build" : "C:/Users/davor/SynologyDrive/SynologyDrive/University/GauchoRacing/GR25/MotorController/FirmwareVer2A/build/Debug",
-		"source" : "C:/Users/davor/SynologyDrive/SynologyDrive/University/GauchoRacing/GR25/MotorController/FirmwareVer2A"
+		"build" : "C:/SynologyDrive/University/GauchoRacing/GR25/MotorController/FirmwareVer2A/build/Release",
+		"source" : "C:/SynologyDrive/University/GauchoRacing/GR25/MotorController/FirmwareVer2A"
 	},
 	"version" : 
 	{
