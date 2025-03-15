@@ -23,6 +23,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include <math.h>
+#include <stdbool.h>
 #include "defines.h"
 /* USER CODE END Includes */
 
@@ -61,6 +62,7 @@ extern FDCAN_HandleTypeDef hfdcan2;
 /* USER CODE BEGIN EV */
 extern volatile int16_t adc_data[4];
 extern volatile int16_t adc_os[3];
+extern volatile bool SPI_Wait;
 extern volatile float motor_ElecPosition;
 extern volatile int32_t motor_PhysPosition;
 extern volatile uint32_t Encoder_os;
@@ -253,6 +255,45 @@ void DMA1_Channel2_IRQHandler(void)
 }
 
 /**
+  * @brief This function handles SPI1 global interrupt.
+  */
+void SPI1_IRQHandler(void)
+{
+  /* USER CODE BEGIN SPI1_IRQn 0 */
+  LL_GPIO_SetOutputPin(GPIOC, LL_GPIO_PIN_1);
+  LL_SPI_DisableIT_RXNE(SPI1);
+  LL_SPI_ReceiveData16(SPI1);
+  ENDAT_DIR_Read;
+  LL_SPI_Disable(SPI1);
+  LL_SPI_SetDataWidth(SPI1, LL_SPI_DATAWIDTH_16BIT);
+  LL_SPI_SetTransferBitOrder(SPI1, LL_SPI_LSB_FIRST);
+  LL_SPI_SetClockPhase(SPI1, LL_SPI_PHASE_1EDGE);
+  LL_SPI_Enable(SPI1);
+  LL_SPI_TransmitData16(SPI1, 0U);
+  LL_SPI_TransmitData16(SPI1, 0U);
+  SPI_Wait = false;
+  LL_GPIO_ResetOutputPin(GPIOC, LL_GPIO_PIN_1);
+  /* USER CODE END SPI1_IRQn 0 */
+  /* USER CODE BEGIN SPI1_IRQn 1 */
+
+  /* USER CODE END SPI1_IRQn 1 */
+}
+
+/**
+  * @brief This function handles TIM7 global interrupt, DAC2 and DAC4 channel underrun error interrupts.
+  */
+void TIM7_DAC_IRQHandler(void)
+{
+  /* USER CODE BEGIN TIM7_DAC_IRQn 0 */
+
+  /* USER CODE END TIM7_DAC_IRQn 0 */
+
+  /* USER CODE BEGIN TIM7_DAC_IRQn 1 */
+
+  /* USER CODE END TIM7_DAC_IRQn 1 */
+}
+
+/**
   * @brief This function handles HRTIM master timer global interrupt.
   */
 void HRTIM1_Master_IRQHandler(void)
@@ -260,10 +301,10 @@ void HRTIM1_Master_IRQHandler(void)
   /* USER CODE BEGIN HRTIM1_Master_IRQn 0 */
   LL_HRTIM_ClearFlag_REP(HRTIM1, LL_HRTIM_TIMER_MASTER);
   LL_GPIO_SetOutputPin(GPIOC, LL_GPIO_PIN_0);
-  // convert ADC values to phase current and motor temperature
-  U_current = -(adc_data[0] - adc_os[0]) / 13.33f;
-  V_current = -(adc_data[1] - adc_os[1]) / 13.33f;
-  W_current = -(adc_data[2] - adc_os[2]) / 13.33f;
+  // convert ADC values to phase current
+  U_current = (adc_data[0] - adc_os[0]) * -0.075f;
+  V_current = (adc_data[1] - adc_os[1]) * -0.075f;
+  W_current = (adc_data[2] - adc_os[2]) * -0.075f;
   // FOC
   motor_ElecPosition = fmodf((float)(motor_PhysPosition + Encoder_os) / N_STEP_ENCODER * N_POLES, 1.0f) * PIx2; // radians
   // motor_ElecPosition = (float)((motor_PhysPosition + Encoder_os) % (N_STEP_ENCODER / N_POLES)) / (N_STEP_ENCODER / N_POLES) * PIx2;
@@ -272,7 +313,7 @@ void HRTIM1_Master_IRQHandler(void)
   cos_elec_position = cosf(motor_ElecPosition);
   // Clarke transform
   I_a = U_current * 0.66666667f - V_current * 0.33333333f - W_current * 0.33333333f;
-  I_b = 0.5773502691896257f * (V_current - W_current);
+  I_b = sqrt3_1o * (V_current - W_current);
   // Park transform
   I_d = I_a * cos_elec_position + I_b * sin_elec_position;
   I_q = I_b * cos_elec_position - I_a * sin_elec_position;

@@ -70,7 +70,7 @@
 			"compileCommandFragments" : 
 			[
 				{
-					"fragment" : " -mfpu=fpv4-sp-d16 -mfloat-abi=hard -O3 -ffast-math -funsafe-math-optimizations -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard  -Wall -Wextra -Wpedantic -fdata-sections -ffunction-sections -Os -g0 -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard  -Wall -Wextra -Wpedantic -fdata-sections -ffunction-sections -Os -g0 -u _printf_float -O3 -DNDEBUG -std=gnu11"
+					"fragment" : " -O3 -ffast-math -funsafe-math-optimizations -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard  -Wall -Wextra -Wpedantic -fdata-sections -ffunction-sections -Os -g0 -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard  -Wall -Wextra -Wpedantic -fdata-sections -ffunction-sections -Os -g0 -u _printf_float -O3 -DNDEBUG -std=gnu11"
 				}
 			],
 			"defines" : 
@@ -178,7 +178,7 @@
 			"compileCommandFragments" : 
 			[
 				{
-					"fragment" : " -mfpu=fpv4-sp-d16 -mfloat-abi=hard -O3 -ffast-math -funsafe-math-optimizations -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard  -Wall -Wextra -Wpedantic -fdata-sections -ffunction-sections -Os -g0 -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard  -Wall -Wextra -Wpedantic -fdata-sections -ffunction-sections -Os -g0 -x assembler-with-cpp -MMD -MP -O3 -DNDEBUG"
+					"fragment" : " -O3 -ffast-math -funsafe-math-optimizations -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard  -Wall -Wextra -Wpedantic -fdata-sections -ffunction-sections -Os -g0 -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard  -Wall -Wextra -Wpedantic -fdata-sections -ffunction-sections -Os -g0 -x assembler-with-cpp -MMD -MP -O3 -DNDEBUG"
 				}
 			],
 			"defines" : 
@@ -251,7 +251,7 @@
 		"commandFragments" : 
 		[
 			{
-				"fragment" : "-mfpu=fpv4-sp-d16 -mfloat-abi=hard -O3 -ffast-math -funsafe-math-optimizations -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard  -Wall -Wextra -Wpedantic -fdata-sections -ffunction-sections -Os -g0 -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard  -Wall -Wextra -Wpedantic -fdata-sections -ffunction-sections -Os -g0 -u _printf_float -O3 -DNDEBUG",
+				"fragment" : "-O3 -ffast-math -funsafe-math-optimizations -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard  -Wall -Wextra -Wpedantic -fdata-sections -ffunction-sections -Os -g0 -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard  -Wall -Wextra -Wpedantic -fdata-sections -ffunction-sections -Os -g0 -u _printf_float -O3 -DNDEBUG",
 				"role" : "flags"
 			},
 			{

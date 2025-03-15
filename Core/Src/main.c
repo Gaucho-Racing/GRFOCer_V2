@@ -31,6 +31,7 @@
 #include <stdio.h>
 #include <math.h>
 #include <string.h>
+#include <stdbool.h>
 #include "arm_math.h"
 #include "defines.h"
 /* USER CODE END Includes */
@@ -47,30 +48,7 @@
 
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
-#define DELAY_US(us) \
-  do { \
-    uint32_t clk_cycle_start = DWT->CYCCNT;\
-    uint32_t clk_cycles = (SystemCoreClock / 1000000U) * us;\
-    while ((DWT->CYCCNT - clk_cycle_start) < clk_cycles);\
-  } while (0)
 
-#define ENDAT_DIR_WRITE LL_GPIO_SetOutputPin(GPIOA, LL_GPIO_PIN_4)
-
-#define ENDAT_DIR_Read LL_GPIO_ResetOutputPin(GPIOA, LL_GPIO_PIN_4)
-
-// Gate driver ready and !fault signals
-#define DRV_RDY_UH ((GPIOC->IDR&(1U<<11))!=0)
-#define DRV_FLT_UH ((GPIOC->IDR&(1U<<10))!=0)
-#define DRV_RDY_UL ((GPIOA->IDR&(1U<<15))!=0)
-#define DRV_FLT_UL ((GPIOA->IDR&(1U<<12))!=0)
-#define DRV_RDY_VH ((GPIOA->IDR&(1U<<8))!=0)
-#define DRV_FLT_VH ((GPIOC->IDR&(1U<<9))!=0)
-#define DRV_RDY_VL ((GPIOC->IDR&(1U<<8))!=0)
-#define DRV_FLT_VL ((GPIOB->IDR&(1U<<15))!=0)
-#define DRV_RDY_WH ((GPIOB->IDR&(1U<<11))!=0)
-#define DRV_FLT_WH ((GPIOB->IDR&(1U))!=0)
-#define DRV_RDY_WL ((GPIOB->IDR&(1U<<1))!=0)
-#define DRV_FLT_WL ((GPIOB->IDR&(1U<<10))!=0)
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
@@ -86,6 +64,7 @@ uint8_t TxData[8];
 char printBuffer[1024];
 
 // Motor variables
+volatile bool SPI_Wait = false;
 volatile int32_t motor_PhysPosition;
 volatile float motor_ElecPosition;
 volatile float U_current, V_current, W_current;
@@ -109,8 +88,8 @@ volatile float I_a, I_b, I_q, I_d;
 volatile float cmd_q = 0.0f, cmd_d = 0.0f;
 volatile float cmd_a = 0.0f, cmd_b = 0.0f;
 volatile float integ_q = 0.0f, integ_d = 0.0f;
-volatile float Kp_Iq = 0.01f, Ki_Iq = 0.3f;
-volatile float Kp_Id = 0.01f, Ki_Id = 0.3f;
+volatile float Kp_Iq = 0.0f, Ki_Iq = 1.0f;
+volatile float Kp_Id = 0.0f, Ki_Id = 1.0f;
 volatile float I_d_err, I_q_err;
 volatile float TargetCurrent = 0.0f;
 volatile float TargetFieldWk = 0.0f;
@@ -200,6 +179,7 @@ int main(void)
   MX_TIM5_Init();
   MX_TIM15_Init();
   MX_TIM2_Init();
+  MX_TIM7_Init();
   /* USER CODE BEGIN 2 */
   // Init DWT delay
   CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
@@ -208,6 +188,10 @@ int main(void)
 
   // Enable microsecond counter
   LL_TIM_EnableCounter(TIM2);
+
+  // Enable CANBus send interrupt timer
+  LL_TIM_EnableCounter(TIM7);
+  LL_TIM_EnableIT_UPDATE(TIM7);
 
   // encoder setup (Emrax motor)
   ENDAT_DIR_Read;
@@ -305,24 +289,14 @@ int main(void)
     LL_SPI_SetTransferBitOrder(SPI1, LL_SPI_MSB_FIRST);
     LL_SPI_SetClockPhase(SPI1, LL_SPI_PHASE_2EDGE);
     LL_SPI_Enable(SPI1);
+    LL_SPI_EnableIT_RXNE(SPI1);
+    SPI_Wait = true;
     LL_SPI_TransmitData16(SPI1, 0b0000011100U); // send mode 1: Encoder send position values
-    uint32_t startTime = TIM2->CNT;
-    while (LL_SPI_IsActiveFlag_BSY(SPI1)){
-      if (TIM2->CNT - startTime > 20U) {
-        printCANBus("timeout 1\n");
-        break;
-      }
-    }
-    LL_SPI_ReceiveData16(SPI1);
-
-    ENDAT_DIR_Read;
-    LL_SPI_Disable(SPI1);
-    LL_SPI_SetDataWidth(SPI1, LL_SPI_DATAWIDTH_16BIT);
-    LL_SPI_SetTransferBitOrder(SPI1, LL_SPI_LSB_FIRST);
-    LL_SPI_SetClockPhase(SPI1, LL_SPI_PHASE_1EDGE);
-    LL_SPI_Enable(SPI1);
-    LL_SPI_TransmitData16(SPI1, 0U);
-    LL_SPI_TransmitData16(SPI1, 0U);
+    // convert ADC values to phase current
+    U_current = (adc_data[0] - adc_os[0]) * -0.075f;
+    V_current = (adc_data[1] - adc_os[1]) * -0.075f;
+    W_current = (adc_data[2] - adc_os[2]) * -0.075f;
+    while (SPI_Wait); // wait for 10-bit command to transfer (reset in interrupt)
     while (!LL_SPI_IsActiveFlag_RXNE(SPI1));
     buf |= LL_SPI_ReceiveData16(SPI1) >> 8;
     while (!LL_SPI_IsActiveFlag_RXNE(SPI1));
@@ -354,7 +328,7 @@ int main(void)
     NTC_Resistance = 24631 * (NTC_period - NTC_dutyCycle) / NTC_period - 4700;
     W_temp = lookupTbl(MOSFET_NTC_LookupR, MOSFET_NTC_LookupT, MOSFET_NTC_LookupSize, NTC_Resistance);
 
-    DELAY_US(10);
+    DELAY_US(5);
 
     /* USER CODE END WHILE */
 
