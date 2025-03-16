@@ -30,8 +30,13 @@
 #define N_POLES 5U
 #endif
 
+// CANBus receive IDs
 #define CAN_CMD_ID 0x201708UL
 #define CAN_CFG_ID 0x201608UL
+// CANBus send IDs
+#define CAN_STAT1_ID 0x801302UL
+#define CAN_STAT2_ID 0x801402UL
+#define CAN_STAT3_ID 0x801502UL
 
 
 // ========== Macros ==========

@@ -79,6 +79,7 @@ void HAL_MspInit(void)
 
   /** Enable the Internal Voltage Reference buffer
   */
+  HAL_SYSCFG_VREFBUF_HighImpedanceConfig(SYSCFG_VREFBUF_HIGH_IMPEDANCE_DISABLE);
   HAL_SYSCFG_EnableVREFBUF();
 
   /** Configure the internal voltage reference buffer high impedance mode

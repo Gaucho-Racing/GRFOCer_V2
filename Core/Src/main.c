@@ -32,6 +32,7 @@
 #include <math.h>
 #include <string.h>
 #include <stdbool.h>
+#include <stdlib.h>
 #include "arm_math.h"
 #include "defines.h"
 /* USER CODE END Includes */
@@ -66,8 +67,10 @@ char printBuffer[1024];
 // Motor variables
 volatile bool SPI_Wait = false;
 volatile int32_t motor_PhysPosition;
+int32_t motor_lastPhysPosition;
 volatile float motor_ElecPosition;
 volatile float U_current, V_current, W_current;
+int32_t motor_speed; // encoder LSBs / second
 int32_t KTY_Temperature;
 #ifdef USE_EMRAX_MOTOR
 volatile uint32_t Encoder_os = 731; // encoder offset angle
@@ -113,7 +116,7 @@ int32_t MOSFET_NTC_LookupT[] = {150, 145, 140, 135, 130, 125, 120, 115, 110, 105
 uint16_t MOSFET_NTC_LookupSize = 31;
 uint8_t driver_RDY = 0; // format: |NA|NA|UH|UL|VH|VL|WH|WL|
 uint8_t driver_OK = 0;  // format: |NA|NA|UH|UL|VH|VL|WH|WL|
-volatile int32_t duty_u, duty_v, duty_w;
+volatile float duty_u, duty_v, duty_w;
 uint8_t U_temp, V_temp, W_temp;
 uint32_t NTC_period, NTC_dutyCycle, NTC_Resistance;
 
@@ -122,7 +125,12 @@ volatile int16_t adc_os[3] = {2000, 2000, 2000};
 
 // timing stuff
 uint32_t micros = 0, lastMicros = 0;
-float dt = 1e-4f;
+float dt_f = 33e-6f; // seconds
+int32_t dt_i = 33; // microseconds
+
+// CANBus stuff
+volatile bool sendCANBus_flag = false;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -218,6 +226,15 @@ int main(void)
   // CANbus setup
   HAL_FDCAN_Start(&hfdcan2);
   HAL_FDCAN_ActivateNotification(&hfdcan2, FDCAN_IT_RX_FIFO0_NEW_MESSAGE, 0);
+  TxHeader.BitRateSwitch = FDCAN_BRS_OFF;
+  TxHeader.DataLength = FDCAN_DLC_BYTES_6;
+  TxHeader.ErrorStateIndicator = FDCAN_ESI_ACTIVE;
+  TxHeader.FDFormat = FDCAN_CLASSIC_CAN;
+  TxHeader.Identifier = CAN_STAT1_ID;
+  TxHeader.IdType = FDCAN_EXTENDED_ID;
+  TxHeader.MessageMarker = 0;
+  TxHeader.TxEventFifoControl = FDCAN_NO_TX_EVENTS;
+  TxHeader.TxFrameType = FDCAN_DATA_FRAME;
 
   // Enable TIM1, TIM15, and TIM5 (MOSFET temperture PWM signal)
   LL_TIM_EnableCounter(TIM1);
@@ -265,11 +282,13 @@ int main(void)
   {
     lastMicros = micros;
     micros = TIM2->CNT;
-    dt = (micros - lastMicros) * 1e-6f;
+    dt_i = micros - lastMicros;
+    dt_f = dt_i * 1e-6f;
 
-
+    // read motor position
+    motor_lastPhysPosition = motor_PhysPosition;
     #ifdef USE_EMRAX_MOTOR
-    // read motor position (RM44SI encoder)
+    //RM44SI encoder
     LL_SPI_TransmitData16(SPI1, 0);
     uint32_t startTime = TIM2->CNT;
     while (!LL_SPI_IsActiveFlag_RXNE(SPI1)) {
@@ -279,7 +298,7 @@ int main(void)
     motor_PhysPosition = (motor_PhysPosition & 0x7FFF) >> 2;
     #endif
     #ifdef USE_AMK_MOTOR
-    // read motor position (AMK type-P encoder)
+    // AMK type-P encoder
     uint32_t buf = 0U;
     ENDAT_DIR_WRITE;
     //while (LL_SPI_IsActiveFlag_RXNE(SPI1)) LL_SPI_ReceiveData8(SPI1); // clear SPI buffer
@@ -303,6 +322,12 @@ int main(void)
     buf |= ((uint32_t)LL_SPI_ReceiveData16(SPI1)) << 8;
     motor_PhysPosition = N_STEP_ENCODER-1 - (buf & (N_STEP_ENCODER - 1));
     #endif
+
+    // calculate motor speed
+    motor_speed = motor_PhysPosition - motor_lastPhysPosition;
+    if (motor_speed < -(N_STEP_ENCODER >> 1)) motor_speed = N_STEP_ENCODER + motor_speed;
+    if (motor_speed >  (N_STEP_ENCODER >> 1)) motor_speed = motor_speed - N_STEP_ENCODER;
+    motor_speed = motor_speed * 1000000 / dt_i;
 
     // read gate driver status (FLT and RDY pins)
     driver_RDY = (DRV_RDY_UH<<5) | (DRV_RDY_UL<<4) | (DRV_RDY_VH<<3) | (DRV_RDY_VL<<2) | (DRV_RDY_WH<<1) | DRV_RDY_WL;
@@ -328,7 +353,18 @@ int main(void)
     NTC_Resistance = 24631 * (NTC_period - NTC_dutyCycle) / NTC_period - 4700;
     W_temp = lookupTbl(MOSFET_NTC_LookupR, MOSFET_NTC_LookupT, MOSFET_NTC_LookupSize, NTC_Resistance);
 
-    DELAY_US(5);
+    if (sendCANBus_flag) {
+      sendCANBus_flag = false;
+      TxHeader.Identifier = CAN_STAT1_ID;
+      TxHeader.DataLength = FDCAN_DLC_BYTES_6;
+      int16_t AC_current = I_q * 100.0f;
+      int16_t DC_current = hypotf(I_q, I_d) * SVPWM_mag * 100.0f; // not really sure if this is correct
+      int16_t motor_speed_scaled = (motor_speed * 15) >> 16;
+      memcpy(&TxData[0], &AC_current, 2);
+      memcpy(&TxData[2], &DC_current, 2);
+      memcpy(&TxData[4], &motor_speed_scaled, 2);
+      HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan2, &TxHeader, TxData);
+    }
 
     /* USER CODE END WHILE */
 
@@ -344,6 +380,7 @@ int main(void)
     // sprintf(printBuffer, "U: %6ld, V: %6ld, W: %6ld, I_d: %.03f, cmd_d: %.03f, I_q: %.03f, cmd_q: %.03f\n", duty_u, duty_v, duty_w, I_d, cmd_d, I_q, cmd_q);
     // printCANBus(printBuffer);
     // LL_mDelay(50);
+    while (TIM2->CNT - micros < 36); // AMK encoder sample rate limit
   }
   /* USER CODE END 3 */
 }
@@ -493,8 +530,8 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
       Error_Handler();
     }
     if (RxHeader.Identifier == CAN_CMD_ID) {
-      int16_t AC_current_raw = (int16_t)RxData[0] << 8;
-      AC_current_raw += RxData[1];
+      int16_t AC_current_raw;
+      memcpy(&AC_current_raw, &RxData[0], 2);
       TargetCurrent = AC_current_raw * 0.01f;
       TargetFieldWk = RxData[6] * 0.1f;
     }

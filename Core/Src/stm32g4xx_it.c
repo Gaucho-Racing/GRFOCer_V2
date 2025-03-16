@@ -83,7 +83,8 @@ extern volatile float SVPWM_mag, SVPWM_ang;
 extern volatile float SVPWM_Ti[4];
 extern volatile float SVPWM_Tb1, SVPWM_Tb2;
 extern volatile float SVPWM_beta;
-extern volatile int32_t duty_u, duty_v, duty_w;
+extern volatile float duty_u, duty_v, duty_w;
+extern volatile bool sendCANBus_flag;
 
 extern void writePwm(uint32_t timer, int32_t duty);
 /* USER CODE END EV */
@@ -285,7 +286,8 @@ void SPI1_IRQHandler(void)
 void TIM7_DAC_IRQHandler(void)
 {
   /* USER CODE BEGIN TIM7_DAC_IRQn 0 */
-
+  LL_TIM_ClearFlag_UPDATE(TIM7);
+  sendCANBus_flag = true;
   /* USER CODE END TIM7_DAC_IRQn 0 */
 
   /* USER CODE BEGIN TIM7_DAC_IRQn 1 */
@@ -306,6 +308,7 @@ void HRTIM1_Master_IRQHandler(void)
   V_current = (adc_data[1] - adc_os[1]) * -0.075f;
   W_current = (adc_data[2] - adc_os[2]) * -0.075f;
   // FOC
+  // TODO: predict motor position
   motor_ElecPosition = fmodf((float)(motor_PhysPosition + Encoder_os) / N_STEP_ENCODER * N_POLES, 1.0f) * PIx2; // radians
   // motor_ElecPosition = (float)((motor_PhysPosition + Encoder_os) % (N_STEP_ENCODER / N_POLES)) / (N_STEP_ENCODER / N_POLES) * PIx2;
   // arm_sin_cos_f32(motor_ElecPosition, &sin_elec_position, &cos_elec_position);
@@ -347,12 +350,12 @@ void HRTIM1_Master_IRQHandler(void)
   SVPWM_Ti[2] = SVPWM_Tb2 + SVPWM_Ti[0];
   SVPWM_Ti[3] = SVPWM_Tb1 + SVPWM_Ti[0];
   // Update duty cycle
-  duty_u = SVPWM_Ti[SVPWM_PermuataionMatrix[SVPWM_sector][0]] * 64000.0f;
-  duty_v = SVPWM_Ti[SVPWM_PermuataionMatrix[SVPWM_sector][1]] * 64000.0f;
-  duty_w = SVPWM_Ti[SVPWM_PermuataionMatrix[SVPWM_sector][2]] * 64000.0f;
-  writePwm(U_TIMER, duty_u);
-  writePwm(V_TIMER, duty_v);
-  writePwm(W_TIMER, duty_w);
+  duty_u = SVPWM_Ti[SVPWM_PermuataionMatrix[SVPWM_sector][0]];
+  duty_v = SVPWM_Ti[SVPWM_PermuataionMatrix[SVPWM_sector][1]];
+  duty_w = SVPWM_Ti[SVPWM_PermuataionMatrix[SVPWM_sector][2]];
+  writePwm(U_TIMER, duty_u * 64000.0f);
+  writePwm(V_TIMER, duty_v * 64000.0f);
+  writePwm(W_TIMER, duty_w * 64000.0f);
   LL_GPIO_ResetOutputPin(GPIOC, LL_GPIO_PIN_0);
   /* USER CODE END HRTIM1_Master_IRQn 0 */
 
