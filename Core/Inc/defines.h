@@ -5,7 +5,9 @@
 #define SYSTICK_LOAD (SystemCoreClock/1000000U)
 #define SYSTICK_DELAY_CALIB (SYSTICK_LOAD >> 1)
 
-#define PI 3.14159265358979323f
+#ifndef PI
+  #define PI 3.14159265358979323f
+#endif
 #define PIx2 6.283185307179586f
 #define PIo3 1.047197551196598f
 #define sqrt3_1o 0.5773502691896258f
@@ -22,12 +24,19 @@
 #define USE_AMK_MOTOR
 
 #ifdef USE_EMRAX_MOTOR
-#define N_STEP_ENCODER 8192U
+#define N_STEP_ENCODER 8192
 #define N_POLES 10U
+#define Kt 0.94f
+#define J 0.02521f
+#define MAX_SPEED 5500/60*N_STEP_ENCODER
 #endif
 #ifdef USE_AMK_MOTOR
-#define N_STEP_ENCODER 262144UL
+//#define N_STEP_ENCODER 262144L
+#define N_STEP_ENCODER 65536L // idk waveform appears to be 17-bit, first bit is too noisy so 16-bit
 #define N_POLES 5U
+#define Kt 0.26f
+#define J 2.74e-4f
+#define MAX_SPEED 20000/60*N_STEP_ENCODER
 #endif
 
 // CANBus receive IDs
@@ -37,6 +46,7 @@
 #define CAN_STAT1_ID 0x801302UL
 #define CAN_STAT2_ID 0x801402UL
 #define CAN_STAT3_ID 0x801502UL
+#define CAN_DEBUG_ID 0x100008UL
 
 
 // ========== Macros ==========

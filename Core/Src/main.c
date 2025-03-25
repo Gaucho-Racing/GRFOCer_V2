@@ -66,20 +66,23 @@ char printBuffer[1024];
 
 // Motor variables
 volatile bool SPI_Wait = false;
+volatile uint8_t SPI_WaitState = 0;
+volatile uint32_t SPI_buf = 0U;
 volatile int32_t motor_PhysPosition;
 int32_t motor_lastPhysPosition;
+volatile uint32_t motor_lastMeasTime;
 volatile float motor_ElecPosition;
 volatile float U_current, V_current, W_current;
-int32_t motor_speed; // encoder LSBs / second
+volatile int32_t motor_speed = 0; // encoder LSBs / second
 int32_t KTY_Temperature;
 #ifdef USE_EMRAX_MOTOR
-volatile uint32_t Encoder_os = 731; // encoder offset angle
+volatile int32_t Encoder_os = 731; // encoder offset angle
 int32_t KTY_LookupR[] = {980,1030,1135,1247,1367,1495,1630,1772,1922,2000,2080,2245,2417,2597,2785,2980,3182,3392,3607,3817,3915,4008,4166,4280};
 int32_t KTY_LookupT[] = {-55,-50,-40,-30,-20,-10,0,10,20,25,30,40,50,60,70,80,90,100,110,120,125,130,140,150};
 uint16_t KTY_LookupSize = 24;
 #endif
 #ifdef USE_AMK_MOTOR
-volatile uint32_t Encoder_os = 0;
+volatile int32_t Encoder_os = 3277;
 int32_t KTY_LookupR[] = {359,391,424,460,498,538,581,603,626,672,722,773,826,882,940,1000,1062,1127,1194,1262,1334,1407,1482,1560,1640,1722,1807,1893,1982,2073,2166,2261,2357,2452,2542,2624};
 int32_t KTY_LookupT[] = {-40,-30,-20,-10,0,10,20,25,30,40,50,60,70,80,90,100,110,120,130,140,150,160,170,180,190,200,210,220,230,240,250,260,270,280,290,300};
 uint16_t KTY_LookupSize = 36;
@@ -91,8 +94,8 @@ volatile float I_a, I_b, I_q, I_d;
 volatile float cmd_q = 0.0f, cmd_d = 0.0f;
 volatile float cmd_a = 0.0f, cmd_b = 0.0f;
 volatile float integ_q = 0.0f, integ_d = 0.0f;
-volatile float Kp_Iq = 0.0f, Ki_Iq = 1.0f;
-volatile float Kp_Id = 0.0f, Ki_Id = 1.0f;
+volatile float Kp_Iq = 0.0f, Ki_Iq = 0.1f;
+volatile float Kp_Id = 0.0f, Ki_Id = 0.1f;
 volatile float I_d_err, I_q_err;
 volatile float TargetCurrent = 0.0f;
 volatile float TargetFieldWk = 0.0f;
@@ -126,7 +129,7 @@ volatile int16_t adc_os[3] = {2000, 2000, 2000};
 // timing stuff
 uint32_t micros = 0, lastMicros = 0;
 float dt_f = 33e-6f; // seconds
-int32_t dt_i = 33; // microseconds
+volatile int32_t dt_i = 33; // microseconds
 
 // CANBus stuff
 volatile bool sendCANBus_flag = false;
@@ -203,7 +206,8 @@ int main(void)
 
   // encoder setup (Emrax motor)
   ENDAT_DIR_Read;
-  LL_SPI_Enable(SPI1);
+  // LL_SPI_Enable(SPI1);
+  LL_SPI_EnableIT_RXNE(SPI1);
 
   // Enable ADC1 (phase current sensors) with DMA
   LL_ADC_Enable(ADC1);
@@ -277,29 +281,21 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-
   while (1)
   {
-    lastMicros = micros;
     micros = TIM2->CNT;
     dt_i = micros - lastMicros;
     dt_f = dt_i * 1e-6f;
 
-    // read motor position
+    // start read motor position
     motor_lastPhysPosition = motor_PhysPosition;
     #ifdef USE_EMRAX_MOTOR
     //RM44SI encoder
     LL_SPI_TransmitData16(SPI1, 0);
     uint32_t startTime = TIM2->CNT;
-    while (!LL_SPI_IsActiveFlag_RXNE(SPI1)) {
-      if (TIM2->CNT - startTime > 10000U) break;
-    }
-    motor_PhysPosition = LL_SPI_ReceiveData16(SPI1);
-    motor_PhysPosition = (motor_PhysPosition & 0x7FFF) >> 2;
     #endif
     #ifdef USE_AMK_MOTOR
     // AMK type-P encoder
-    uint32_t buf = 0U;
     ENDAT_DIR_WRITE;
     //while (LL_SPI_IsActiveFlag_RXNE(SPI1)) LL_SPI_ReceiveData8(SPI1); // clear SPI buffer
     LL_SPI_Disable(SPI1);
@@ -308,26 +304,17 @@ int main(void)
     LL_SPI_SetTransferBitOrder(SPI1, LL_SPI_MSB_FIRST);
     LL_SPI_SetClockPhase(SPI1, LL_SPI_PHASE_2EDGE);
     LL_SPI_Enable(SPI1);
-    LL_SPI_EnableIT_RXNE(SPI1);
     SPI_Wait = true;
+    SPI_WaitState = 0;
+    SPI_buf = 0;
+    motor_lastMeasTime = TIM2->CNT;
     LL_SPI_TransmitData16(SPI1, 0b0000011100U); // send mode 1: Encoder send position values
+    #endif
+
     // convert ADC values to phase current
     U_current = (adc_data[0] - adc_os[0]) * -0.075f;
     V_current = (adc_data[1] - adc_os[1]) * -0.075f;
     W_current = (adc_data[2] - adc_os[2]) * -0.075f;
-    while (SPI_Wait); // wait for 10-bit command to transfer (reset in interrupt)
-    while (!LL_SPI_IsActiveFlag_RXNE(SPI1));
-    buf |= LL_SPI_ReceiveData16(SPI1) >> 8;
-    while (!LL_SPI_IsActiveFlag_RXNE(SPI1));
-    buf |= ((uint32_t)LL_SPI_ReceiveData16(SPI1)) << 8;
-    motor_PhysPosition = N_STEP_ENCODER-1 - (buf & (N_STEP_ENCODER - 1));
-    #endif
-
-    // calculate motor speed
-    motor_speed = motor_PhysPosition - motor_lastPhysPosition;
-    if (motor_speed < -(N_STEP_ENCODER >> 1)) motor_speed = N_STEP_ENCODER + motor_speed;
-    if (motor_speed >  (N_STEP_ENCODER >> 1)) motor_speed = motor_speed - N_STEP_ENCODER;
-    motor_speed = motor_speed * 1000000 / dt_i;
 
     // read gate driver status (FLT and RDY pins)
     driver_RDY = (DRV_RDY_UH<<5) | (DRV_RDY_UL<<4) | (DRV_RDY_VH<<3) | (DRV_RDY_VL<<2) | (DRV_RDY_WH<<1) | DRV_RDY_WL;
@@ -353,16 +340,42 @@ int main(void)
     NTC_Resistance = 24631 * (NTC_period - NTC_dutyCycle) / NTC_period - 4700;
     W_temp = lookupTbl(MOSFET_NTC_LookupR, MOSFET_NTC_LookupT, MOSFET_NTC_LookupSize, NTC_Resistance);
 
+    // wait for encoder communication to finish
+    #ifdef USE_EMRAX_MOTOR
+    while (!LL_SPI_IsActiveFlag_RXNE(SPI1)) {
+      if (TIM2->CNT - startTime > 10000U) break;
+    }
+    motor_PhysPosition = LL_SPI_ReceiveData16(SPI1);
+    motor_PhysPosition = (motor_PhysPosition & 0x7FFF) >> 2;
+    #endif
+    #ifdef USE_AMK_MOTOR
+    while (SPI_Wait); // wait for 10-bit command to transfer (reset in interrupt)
+    uint32_t uhhh = (SPI_buf >> 10) & (N_STEP_ENCODER-1);
+    motor_PhysPosition = uhhh;
+    #endif
+
+    // calculate motor speed
+    motor_speed = motor_PhysPosition - motor_lastPhysPosition;
+    motor_speed = motor_speed * 1000000 / dt_i;
+
     if (sendCANBus_flag) {
       sendCANBus_flag = false;
+
       TxHeader.Identifier = CAN_STAT1_ID;
       TxHeader.DataLength = FDCAN_DLC_BYTES_6;
       int16_t AC_current = I_q * 100.0f;
-      int16_t DC_current = hypotf(I_q, I_d) * SVPWM_mag * 100.0f; // not really sure if this is correct
-      int16_t motor_speed_scaled = (motor_speed * 15) >> 16;
+      int16_t DC_current = (I_q + I_d) * SVPWM_mag * 100.0f; // fix formula
+      int16_t motor_speed_scaled = motor_PhysPosition;//(motor_speed * 15) >> 14;
       memcpy(&TxData[0], &AC_current, 2);
       memcpy(&TxData[2], &DC_current, 2);
       memcpy(&TxData[4], &motor_speed_scaled, 2);
+      HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan2, &TxHeader, TxData);
+
+      TxHeader.Identifier = CAN_STAT2_ID;
+      TxHeader.DataLength = FDCAN_DLC_BYTES_3;
+      TxData[0] = U_temp + 40;
+      TxData[1] = V_temp + 40;
+      TxData[2] = W_temp + 40;
       HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan2, &TxHeader, TxData);
     }
 
@@ -380,7 +393,8 @@ int main(void)
     // sprintf(printBuffer, "U: %6ld, V: %6ld, W: %6ld, I_d: %.03f, cmd_d: %.03f, I_q: %.03f, cmd_q: %.03f\n", duty_u, duty_v, duty_w, I_d, cmd_d, I_q, cmd_q);
     // printCANBus(printBuffer);
     // LL_mDelay(50);
-    while (TIM2->CNT - micros < 36); // AMK encoder sample rate limit
+    while (TIM2->CNT - micros < 33); // AMK encoder sample rate limit
+    lastMicros = micros;
   }
   /* USER CODE END 3 */
 }
@@ -474,6 +488,7 @@ void printCANBus(char* text) {
 }
 
 void writePwm(uint32_t timer, int32_t duty) {
+  duty = 64000 - duty;
   uint32_t duty_H, duty_L;
   if (duty <= deadTime) {
     duty_H = 0;

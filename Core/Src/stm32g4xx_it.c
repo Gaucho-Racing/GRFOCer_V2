@@ -24,6 +24,7 @@
 /* USER CODE BEGIN Includes */
 #include <math.h>
 #include <stdbool.h>
+#include <stdlib.h>
 #include "defines.h"
 /* USER CODE END Includes */
 
@@ -44,7 +45,7 @@
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN PV */
-
+volatile uint32_t x = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -60,13 +61,22 @@
 /* External variables --------------------------------------------------------*/
 extern FDCAN_HandleTypeDef hfdcan2;
 /* USER CODE BEGIN EV */
+extern volatile int32_t dt_i;
+
 extern volatile int16_t adc_data[4];
 extern volatile int16_t adc_os[3];
+
 extern volatile bool SPI_Wait;
+extern volatile uint8_t SPI_WaitState;
+extern volatile uint32_t SPI_buf;
+
 extern volatile float motor_ElecPosition;
 extern volatile int32_t motor_PhysPosition;
-extern volatile uint32_t Encoder_os;
+extern volatile int32_t Encoder_os;
+extern volatile uint32_t motor_lastMeasTime;
+extern volatile int32_t motor_speed;
 extern volatile float U_current, V_current, W_current;
+
 extern volatile float sin_elec_position, cos_elec_position;
 extern volatile float I_a, I_b, I_q, I_d;
 extern volatile float cmd_q, cmd_d;
@@ -77,6 +87,7 @@ extern volatile float Kp_Id, Ki_Id;
 extern volatile float I_d_err, I_q_err;
 extern volatile float TargetCurrent;
 extern volatile float TargetFieldWk;
+
 extern volatile const uint8_t SVPWM_PermuataionMatrix[6][3];
 extern volatile uint8_t	SVPWM_sector;
 extern volatile float SVPWM_mag, SVPWM_ang;
@@ -84,6 +95,7 @@ extern volatile float SVPWM_Ti[4];
 extern volatile float SVPWM_Tb1, SVPWM_Tb2;
 extern volatile float SVPWM_beta;
 extern volatile float duty_u, duty_v, duty_w;
+
 extern volatile bool sendCANBus_flag;
 
 extern void writePwm(uint32_t timer, int32_t duty);
@@ -262,21 +274,36 @@ void SPI1_IRQHandler(void)
 {
   /* USER CODE BEGIN SPI1_IRQn 0 */
   LL_GPIO_SetOutputPin(GPIOC, LL_GPIO_PIN_1);
-  LL_SPI_DisableIT_RXNE(SPI1);
-  LL_SPI_ReceiveData16(SPI1);
-  ENDAT_DIR_Read;
-  LL_SPI_Disable(SPI1);
-  LL_SPI_SetDataWidth(SPI1, LL_SPI_DATAWIDTH_16BIT);
-  LL_SPI_SetTransferBitOrder(SPI1, LL_SPI_LSB_FIRST);
-  LL_SPI_SetClockPhase(SPI1, LL_SPI_PHASE_1EDGE);
-  LL_SPI_Enable(SPI1);
-  LL_SPI_TransmitData16(SPI1, 0U);
-  LL_SPI_TransmitData16(SPI1, 0U);
-  SPI_Wait = false;
-  LL_GPIO_ResetOutputPin(GPIOC, LL_GPIO_PIN_1);
+  x = LL_SPI_ReceiveData16(SPI1);
+  switch (SPI_WaitState)
+  {
+  case 0: // prepare to recieve 32 bits
+    ENDAT_DIR_Read;
+    LL_SPI_Disable(SPI1);
+    LL_SPI_SetDataWidth(SPI1, LL_SPI_DATAWIDTH_16BIT);
+    LL_SPI_SetTransferBitOrder(SPI1, LL_SPI_LSB_FIRST);
+    LL_SPI_SetClockPhase(SPI1, LL_SPI_PHASE_1EDGE);
+    LL_SPI_Enable(SPI1);
+    LL_SPI_TransmitData16(SPI1, 0U);
+    LL_SPI_TransmitData16(SPI1, 0U);
+    SPI_WaitState = 1;
+    break;
+  case 1: // first 16 bits done
+    SPI_buf |= x;
+    SPI_WaitState = 2;
+    break;
+  case 2: // second 16 bits done
+    SPI_buf |= x << 16;
+    SPI_WaitState = 3;
+    SPI_Wait = false;
+    break;
+  default:
+    SPI_WaitState = 0;
+    break;
+  }
   /* USER CODE END SPI1_IRQn 0 */
   /* USER CODE BEGIN SPI1_IRQn 1 */
-
+  LL_GPIO_ResetOutputPin(GPIOC, LL_GPIO_PIN_1);
   /* USER CODE END SPI1_IRQn 1 */
 }
 
@@ -304,13 +331,14 @@ void HRTIM1_Master_IRQHandler(void)
   LL_HRTIM_ClearFlag_REP(HRTIM1, LL_HRTIM_TIMER_MASTER);
   LL_GPIO_SetOutputPin(GPIOC, LL_GPIO_PIN_0);
   // convert ADC values to phase current
-  U_current = (adc_data[0] - adc_os[0]) * -0.075f;
-  V_current = (adc_data[1] - adc_os[1]) * -0.075f;
-  W_current = (adc_data[2] - adc_os[2]) * -0.075f;
+  U_current = (adc_data[0] - adc_os[0]) * 0.075f;
+  V_current = (adc_data[1] - adc_os[1]) * 0.075f;
+  W_current = (adc_data[2] - adc_os[2]) * 0.075f;
   // FOC
   // TODO: predict motor position
-  motor_ElecPosition = fmodf((float)(motor_PhysPosition + Encoder_os) / N_STEP_ENCODER * N_POLES, 1.0f) * PIx2; // radians
-  // motor_ElecPosition = (float)((motor_PhysPosition + Encoder_os) % (N_STEP_ENCODER / N_POLES)) / (N_STEP_ENCODER / N_POLES) * PIx2;
+  // + ((TIM2->CNT - motor_lastMeasTime)*motor_speed*dt_i/1000000)
+  motor_ElecPosition = fmodf((float)(motor_PhysPosition + Encoder_os)
+    / N_STEP_ENCODER * N_POLES, 1.0f) * PIx2; // radians
   // arm_sin_cos_f32(motor_ElecPosition, &sin_elec_position, &cos_elec_position);
   sin_elec_position = sinf(motor_ElecPosition);
   cos_elec_position = cosf(motor_ElecPosition);
@@ -326,10 +354,12 @@ void HRTIM1_Master_IRQHandler(void)
   integ_d += I_d_err * Ki_Id * 25e-6f;
   integ_d = (integ_d > 0.5f)  ?  0.5f : integ_d;
   integ_d = (integ_d < -0.5f) ? -0.5f : integ_d;
+  // cmd_d = (abs(motor_speed) > MAX_SPEED) ? 0.0f : (I_d_err * Kp_Id + integ_d);
   cmd_d = I_d_err * Kp_Id + integ_d;
   integ_q += I_q_err * Ki_Iq * 25e-6f;
   integ_q = (integ_q > 0.57f)  ?  0.57f : integ_q;
   integ_q = (integ_q < -0.57f) ? -0.57f : integ_q;
+  // cmd_q = (abs(motor_speed) > MAX_SPEED) ? 0.0f : (I_q_err * Kp_Iq + integ_q);
   cmd_q = I_q_err * Kp_Iq + integ_q;
   // Inverse Park transform
   cmd_a = cmd_d * cos_elec_position - cmd_q * sin_elec_position;
