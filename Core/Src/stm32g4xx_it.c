@@ -74,7 +74,7 @@ extern volatile float motor_ElecPosition;
 extern volatile int32_t motor_PhysPosition;
 extern volatile int32_t Encoder_os;
 extern volatile uint32_t motor_lastMeasTime;
-extern volatile int32_t motor_speed;
+extern volatile float motor_speed;
 extern volatile float U_current, V_current, W_current;
 
 extern volatile float sin_elec_position, cos_elec_position;
@@ -336,9 +336,8 @@ void HRTIM1_Master_IRQHandler(void)
   V_current = (adc_data[1] - adc_os[1]) * 0.075f;
   W_current = (adc_data[2] - adc_os[2]) * 0.075f;
   // FOC
-  // TODO: predict motor position
-  // + ((TIM2->CNT - motor_lastMeasTime)*motor_speed*dt_i/1000000)
-  motor_ElecPosition = fmodf((float)((motor_PhysPosition + Encoder_os) * N_POLES) / (float)N_STEP_ENCODER, 1.0f) * PIx2; // radians
+  motor_ElecPosition = fmodf((motor_PhysPosition + Encoder_os + (TIM2->CNT - motor_lastMeasTime)*motor_speed*1e-6f)
+    * N_POLES / (float)N_STEP_ENCODER, 1.0f) * PIx2; // radians
   // arm_sin_cos_f32(motor_ElecPosition, &sin_elec_position, &cos_elec_position);
   // motor_ElecPosition = 0.0f;
   sin_elec_position = sinf(motor_ElecPosition);

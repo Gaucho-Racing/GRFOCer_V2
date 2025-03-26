@@ -74,7 +74,7 @@ volatile uint32_t motor_lastMeasTime;
 uint32_t motor_last2MeasTime;
 volatile float motor_ElecPosition;
 volatile float U_current, V_current, W_current;
-volatile int32_t motor_speed = 0; // encoder LSBs / second
+volatile float motor_speed = 0; // encoder LSBs / second
 int32_t KTY_Temperature;
 #ifdef USE_EMRAX_MOTOR
 volatile int32_t Encoder_os = 731; // encoder offset angle
@@ -100,7 +100,7 @@ volatile float Kp_Id = 0.0f, Ki_Id = 0.2f;
 volatile float I_d_err, I_q_err;
 volatile float TargetCurrent = 0.0f;
 volatile float TargetFieldWk = 0.0f;
-volatile const uint8_t SVPWM_PermuataionMatrix[6][3] = {	
+volatile const uint8_t SVPWM_PermuataionMatrix[6][3] = {
 	{ 1, 2, 0 },
 	{ 3, 1, 0 },
 	{ 0, 1, 2 },
@@ -289,6 +289,7 @@ int main(void)
 
     // start read motor position
     motor_lastPhysPosition = motor_PhysPosition;
+    motor_last2MeasTime = motor_lastMeasTime;
     #ifdef USE_EMRAX_MOTOR
     //RM44SI encoder
     LL_SPI_Enable(SPI1);
@@ -350,17 +351,11 @@ int main(void)
       SPI_buf = SPI_buf >> 1;
       shiftAmount++;
     }
-    uint32_t uhhh = (SPI_buf >> 4) & (N_STEP_ENCODER-1);
-    motor_PhysPosition = uhhh;
-    // motor_PhysPosition = (TIM2->CNT >> 5) & 0xffff;
-    #endif
-
+    motor_PhysPosition = (SPI_buf >> 4) & (N_STEP_ENCODER-1);
     // calculate motor speed
-    motor_speed = motor_PhysPosition - motor_lastPhysPosition;
-    if (motor_speed < -(N_STEP_ENCODER >> 1)) motor_speed = N_STEP_ENCODER + motor_speed;
-    if (motor_speed >  (N_STEP_ENCODER >> 1)) motor_speed = motor_speed - N_STEP_ENCODER;
-    motor_speed = motor_speed * 1000000 / (motor_lastMeasTime - motor_last2MeasTime);
-    motor_last2MeasTime = motor_lastMeasTime;
+    motor_speed += ((int16_t)((motor_PhysPosition - motor_lastPhysPosition) & 0xFFFF)
+      * 1e6f / (motor_lastMeasTime - motor_last2MeasTime) - motor_speed) * 0.2f;
+    #endif
 
     if (sendCANBus_flag) {
       sendCANBus_flag = false;
@@ -369,7 +364,7 @@ int main(void)
       TxHeader.DataLength = FDCAN_DLC_BYTES_6;
       int16_t AC_current = I_q * 100.0f;
       int16_t DC_current = I_d * 100.0f;//(fabsf(I_q) + fabsf(I_d)) * SVPWM_mag * 100.0f; // fix formula
-      int16_t motor_speed_scaled = (motor_speed * 15) >> 14;
+      int16_t motor_speed_scaled = motor_speed * 0.00091552734375f;
       memcpy(&TxData[0], &AC_current, 2);
       memcpy(&TxData[2], &DC_current, 2);
       memcpy(&TxData[4], &motor_speed_scaled, 2);
@@ -384,9 +379,9 @@ int main(void)
 
       TxHeader.Identifier = CAN_DEBUG_ID;
       TxHeader.DataLength = FDCAN_DLC_BYTES_5;
-      uint32_t temp = SPI_buf;
+      uint32_t temp = motor_PhysPosition;
       memcpy(&TxData[0], &temp, 4);
-      TxData[4] = shiftAmount;
+      TxData[4] = motor_lastMeasTime - motor_last2MeasTime;
       HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan2, &TxHeader, TxData);
     }
 

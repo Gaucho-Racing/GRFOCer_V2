@@ -9,7 +9,7 @@ cmake_minimum_required(VERSION 3.22)
 
 include_directories(${CMAKE_SOURCE_DIR}/Drivers/CMSIS/Include)
 # set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mfpu=fpv4-sp-d16 -mfloat-abi=hard")
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -ffast-math -funsafe-math-optimizations")
+# set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -O3 -ffast-math -funsafe-math-optimizations")
 
 # Setup compiler settings
 set(CMAKE_C_STANDARD 11)
