@@ -71,6 +71,7 @@ volatile uint32_t SPI_buf = 0U;
 volatile int32_t motor_PhysPosition;
 int32_t motor_lastPhysPosition;
 volatile uint32_t motor_lastMeasTime;
+uint32_t motor_last2MeasTime;
 volatile float motor_ElecPosition;
 volatile float U_current, V_current, W_current;
 volatile int32_t motor_speed = 0; // encoder LSBs / second
@@ -82,7 +83,7 @@ int32_t KTY_LookupT[] = {-55,-50,-40,-30,-20,-10,0,10,20,25,30,40,50,60,70,80,90
 uint16_t KTY_LookupSize = 24;
 #endif
 #ifdef USE_AMK_MOTOR
-volatile int32_t Encoder_os = 3277;
+volatile int32_t Encoder_os = -8650;
 int32_t KTY_LookupR[] = {359,391,424,460,498,538,581,603,626,672,722,773,826,882,940,1000,1062,1127,1194,1262,1334,1407,1482,1560,1640,1722,1807,1893,1982,2073,2166,2261,2357,2452,2542,2624};
 int32_t KTY_LookupT[] = {-40,-30,-20,-10,0,10,20,25,30,40,50,60,70,80,90,100,110,120,130,140,150,160,170,180,190,200,210,220,230,240,250,260,270,280,290,300};
 uint16_t KTY_LookupSize = 36;
@@ -94,8 +95,8 @@ volatile float I_a, I_b, I_q, I_d;
 volatile float cmd_q = 0.0f, cmd_d = 0.0f;
 volatile float cmd_a = 0.0f, cmd_b = 0.0f;
 volatile float integ_q = 0.0f, integ_d = 0.0f;
-volatile float Kp_Iq = 0.0f, Ki_Iq = 0.1f;
-volatile float Kp_Id = 0.0f, Ki_Id = 0.1f;
+volatile float Kp_Iq = 0.1f, Ki_Iq = 1.0f;
+volatile float Kp_Id = 0.0f, Ki_Id = 0.2f;
 volatile float I_d_err, I_q_err;
 volatile float TargetCurrent = 0.0f;
 volatile float TargetFieldWk = 0.0f;
@@ -204,9 +205,8 @@ int main(void)
   LL_TIM_EnableCounter(TIM7);
   LL_TIM_EnableIT_UPDATE(TIM7);
 
-  // encoder setup (Emrax motor)
+  // encoder setup
   ENDAT_DIR_Read;
-  // LL_SPI_Enable(SPI1);
   LL_SPI_EnableIT_RXNE(SPI1);
 
   // Enable ADC1 (phase current sensors) with DMA
@@ -291,6 +291,7 @@ int main(void)
     motor_lastPhysPosition = motor_PhysPosition;
     #ifdef USE_EMRAX_MOTOR
     //RM44SI encoder
+    LL_SPI_Enable(SPI1);
     LL_SPI_TransmitData16(SPI1, 0);
     uint32_t startTime = TIM2->CNT;
     #endif
@@ -307,14 +308,8 @@ int main(void)
     SPI_Wait = true;
     SPI_WaitState = 0;
     SPI_buf = 0;
-    motor_lastMeasTime = TIM2->CNT;
     LL_SPI_TransmitData16(SPI1, 0b0000011100U); // send mode 1: Encoder send position values
     #endif
-
-    // convert ADC values to phase current
-    U_current = (adc_data[0] - adc_os[0]) * -0.075f;
-    V_current = (adc_data[1] - adc_os[1]) * -0.075f;
-    W_current = (adc_data[2] - adc_os[2]) * -0.075f;
 
     // read gate driver status (FLT and RDY pins)
     driver_RDY = (DRV_RDY_UH<<5) | (DRV_RDY_UL<<4) | (DRV_RDY_VH<<3) | (DRV_RDY_VL<<2) | (DRV_RDY_WH<<1) | DRV_RDY_WL;
@@ -350,13 +345,22 @@ int main(void)
     #endif
     #ifdef USE_AMK_MOTOR
     while (SPI_Wait); // wait for 10-bit command to transfer (reset in interrupt)
-    uint32_t uhhh = (SPI_buf >> 10) & (N_STEP_ENCODER-1);
+    uint8_t shiftAmount = 0;
+    while ((SPI_buf & 1UL) == 0){
+      SPI_buf = SPI_buf >> 1;
+      shiftAmount++;
+    }
+    uint32_t uhhh = (SPI_buf >> 4) & (N_STEP_ENCODER-1);
     motor_PhysPosition = uhhh;
+    // motor_PhysPosition = (TIM2->CNT >> 5) & 0xffff;
     #endif
 
     // calculate motor speed
     motor_speed = motor_PhysPosition - motor_lastPhysPosition;
-    motor_speed = motor_speed * 1000000 / dt_i;
+    if (motor_speed < -(N_STEP_ENCODER >> 1)) motor_speed = N_STEP_ENCODER + motor_speed;
+    if (motor_speed >  (N_STEP_ENCODER >> 1)) motor_speed = motor_speed - N_STEP_ENCODER;
+    motor_speed = motor_speed * 1000000 / (motor_lastMeasTime - motor_last2MeasTime);
+    motor_last2MeasTime = motor_lastMeasTime;
 
     if (sendCANBus_flag) {
       sendCANBus_flag = false;
@@ -364,8 +368,8 @@ int main(void)
       TxHeader.Identifier = CAN_STAT1_ID;
       TxHeader.DataLength = FDCAN_DLC_BYTES_6;
       int16_t AC_current = I_q * 100.0f;
-      int16_t DC_current = (I_q + I_d) * SVPWM_mag * 100.0f; // fix formula
-      int16_t motor_speed_scaled = motor_PhysPosition;//(motor_speed * 15) >> 14;
+      int16_t DC_current = I_d * 100.0f;//(fabsf(I_q) + fabsf(I_d)) * SVPWM_mag * 100.0f; // fix formula
+      int16_t motor_speed_scaled = (motor_speed * 15) >> 14;
       memcpy(&TxData[0], &AC_current, 2);
       memcpy(&TxData[2], &DC_current, 2);
       memcpy(&TxData[4], &motor_speed_scaled, 2);
@@ -376,6 +380,13 @@ int main(void)
       TxData[0] = U_temp + 40;
       TxData[1] = V_temp + 40;
       TxData[2] = W_temp + 40;
+      HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan2, &TxHeader, TxData);
+
+      TxHeader.Identifier = CAN_DEBUG_ID;
+      TxHeader.DataLength = FDCAN_DLC_BYTES_5;
+      uint32_t temp = SPI_buf;
+      memcpy(&TxData[0], &temp, 4);
+      TxData[4] = shiftAmount;
       HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan2, &TxHeader, TxData);
     }
 
@@ -548,7 +559,7 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
       int16_t AC_current_raw;
       memcpy(&AC_current_raw, &RxData[0], 2);
       TargetCurrent = AC_current_raw * 0.01f;
-      TargetFieldWk = RxData[6] * 0.1f;
+      TargetFieldWk = RxData[6] * -0.1f;
     }
   }
 }

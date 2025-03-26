@@ -278,6 +278,7 @@ void SPI1_IRQHandler(void)
   switch (SPI_WaitState)
   {
   case 0: // prepare to recieve 32 bits
+    motor_lastMeasTime = TIM2->CNT - 4;
     ENDAT_DIR_Read;
     LL_SPI_Disable(SPI1);
     LL_SPI_SetDataWidth(SPI1, LL_SPI_DATAWIDTH_16BIT);
@@ -337,9 +338,9 @@ void HRTIM1_Master_IRQHandler(void)
   // FOC
   // TODO: predict motor position
   // + ((TIM2->CNT - motor_lastMeasTime)*motor_speed*dt_i/1000000)
-  motor_ElecPosition = fmodf((float)(motor_PhysPosition + Encoder_os)
-    / N_STEP_ENCODER * N_POLES, 1.0f) * PIx2; // radians
+  motor_ElecPosition = fmodf((float)((motor_PhysPosition + Encoder_os) * N_POLES) / (float)N_STEP_ENCODER, 1.0f) * PIx2; // radians
   // arm_sin_cos_f32(motor_ElecPosition, &sin_elec_position, &cos_elec_position);
+  // motor_ElecPosition = 0.0f;
   sin_elec_position = sinf(motor_ElecPosition);
   cos_elec_position = cosf(motor_ElecPosition);
   // Clarke transform
@@ -352,40 +353,48 @@ void HRTIM1_Master_IRQHandler(void)
   I_d_err = TargetFieldWk - I_d;
   I_q_err = TargetCurrent - I_q;
   integ_d += I_d_err * Ki_Id * 25e-6f;
-  integ_d = (integ_d > 0.5f)  ?  0.5f : integ_d;
-  integ_d = (integ_d < -0.5f) ? -0.5f : integ_d;
+  integ_d = (integ_d > MAX_CMD_D) ? MAX_CMD_D : integ_d;
+  integ_d = (integ_d < MIN_CMD_D) ? MIN_CMD_D : integ_d;
   // cmd_d = (abs(motor_speed) > MAX_SPEED) ? 0.0f : (I_d_err * Kp_Id + integ_d);
   cmd_d = I_d_err * Kp_Id + integ_d;
   integ_q += I_q_err * Ki_Iq * 25e-6f;
-  integ_q = (integ_q > 0.57f)  ?  0.57f : integ_q;
-  integ_q = (integ_q < -0.57f) ? -0.57f : integ_q;
+  integ_q = (integ_q > MAX_CMD_Q) ? MAX_CMD_Q : integ_q;
+  integ_q = (integ_q < MIN_CMD_Q) ? MIN_CMD_Q : integ_q;
   // cmd_q = (abs(motor_speed) > MAX_SPEED) ? 0.0f : (I_q_err * Kp_Iq + integ_q);
   cmd_q = I_q_err * Kp_Iq + integ_q;
+  // cmd_q = 0.15f; cmd_d = 0.0f;
   // Inverse Park transform
   cmd_a = cmd_d * cos_elec_position - cmd_q * sin_elec_position;
   cmd_b = cmd_q * cos_elec_position + cmd_d * sin_elec_position;
   // Inverse Clarke transform
+  duty_u = cmd_a;
+  duty_v = (cmd_a * -0.5f + 0.8660254037844386f * cmd_b);
+  duty_w = (cmd_a * -0.5f - 0.8660254037844386f * cmd_b);
+  writePwm(U_TIMER, duty_u * -32000.0f + 32000);
+  writePwm(V_TIMER, duty_v * -32000.0f + 32000);
+  writePwm(W_TIMER, duty_w * -32000.0f + 32000);
+  // SVPWM generation
   // arm_sqrt_f32(cmd_a*cmd_a + cmd_b*cmd_b, &SVPWM_mag);
-  SVPWM_mag = hypotf(cmd_b, cmd_a);
-  // arm_atan2_f32(cmd_b, cmd_a, &SVPWM_ang);
-  SVPWM_ang = atan2f(cmd_b, cmd_a);
-  SVPWM_ang += PI;
-  SVPWM_mag = (SVPWM_mag > sqrt3_1o) ? sqrt3_1o : SVPWM_mag;
-  SVPWM_sector = (uint8_t)(SVPWM_ang * PI_3o);
-  SVPWM_beta = SVPWM_ang - PIo3 * SVPWM_sector;
-  SVPWM_Tb1 = SVPWM_mag * sinf(PIo3 - SVPWM_beta);
-  SVPWM_Tb2 = SVPWM_mag * sinf(SVPWM_beta);
-  SVPWM_Ti[0] = (1.0f - SVPWM_Tb1 - SVPWM_Tb2) * 0.5f;
-  SVPWM_Ti[1] = SVPWM_Tb1 + SVPWM_Tb2 + SVPWM_Ti[0];
-  SVPWM_Ti[2] = SVPWM_Tb2 + SVPWM_Ti[0];
-  SVPWM_Ti[3] = SVPWM_Tb1 + SVPWM_Ti[0];
+  // SVPWM_mag = hypotf(cmd_b, cmd_a);
+  // // arm_atan2_f32(cmd_b, cmd_a, &SVPWM_ang);
+  // SVPWM_ang = atan2f(cmd_b, cmd_a);
+  // SVPWM_ang += PI;
+  // SVPWM_mag = (SVPWM_mag > sqrt3_1o) ? sqrt3_1o : SVPWM_mag;
+  // SVPWM_sector = (uint8_t)(SVPWM_ang * PI_3o);
+  // SVPWM_beta = SVPWM_ang - PIo3 * SVPWM_sector;
+  // SVPWM_Tb1 = SVPWM_mag * sinf(PIo3 - SVPWM_beta);
+  // SVPWM_Tb2 = SVPWM_mag * sinf(SVPWM_beta);
+  // SVPWM_Ti[0] = (1.0f - SVPWM_Tb1 - SVPWM_Tb2) * 0.5f;
+  // SVPWM_Ti[1] = SVPWM_Tb1 + SVPWM_Tb2 + SVPWM_Ti[0];
+  // SVPWM_Ti[2] = SVPWM_Tb2 + SVPWM_Ti[0];
+  // SVPWM_Ti[3] = SVPWM_Tb1 + SVPWM_Ti[0];
   // Update duty cycle
-  duty_u = SVPWM_Ti[SVPWM_PermuataionMatrix[SVPWM_sector][0]];
-  duty_v = SVPWM_Ti[SVPWM_PermuataionMatrix[SVPWM_sector][1]];
-  duty_w = SVPWM_Ti[SVPWM_PermuataionMatrix[SVPWM_sector][2]];
-  writePwm(U_TIMER, duty_u * 64000.0f);
-  writePwm(V_TIMER, duty_v * 64000.0f);
-  writePwm(W_TIMER, duty_w * 64000.0f);
+  // duty_u = SVPWM_Ti[SVPWM_PermuataionMatrix[SVPWM_sector][0]];
+  // duty_v = SVPWM_Ti[SVPWM_PermuataionMatrix[SVPWM_sector][1]];
+  // duty_w = SVPWM_Ti[SVPWM_PermuataionMatrix[SVPWM_sector][2]];
+  // writePwm(U_TIMER, duty_u * 64000.0f);
+  // writePwm(V_TIMER, duty_v * 64000.0f);
+  // writePwm(W_TIMER, duty_w * 64000.0f);
   LL_GPIO_ResetOutputPin(GPIOC, LL_GPIO_PIN_0);
   /* USER CODE END HRTIM1_Master_IRQn 0 */
 

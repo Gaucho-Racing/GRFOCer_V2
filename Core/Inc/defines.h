@@ -31,13 +31,19 @@
 #define MAX_SPEED 5500/60*N_STEP_ENCODER
 #endif
 #ifdef USE_AMK_MOTOR
-//#define N_STEP_ENCODER 262144L
-#define N_STEP_ENCODER 65536L // idk waveform appears to be 17-bit, first bit is too noisy so 16-bit
+//#define N_STEP_ENCODER 262144
+#define N_STEP_ENCODER 65536 // waveform appears to be 17-bit, first bit is too noisy so 16-bit
 #define N_POLES 5U
 #define Kt 0.26f
 #define J 2.74e-4f
 #define MAX_SPEED 20000/60*N_STEP_ENCODER
 #endif
+
+// FOC constants
+#define MAX_CMD_D 0.5f
+#define MIN_CMD_D -0.5f
+#define MAX_CMD_Q 1.4f
+#define MIN_CMD_Q -1.4f
 
 // CANBus receive IDs
 #define CAN_CMD_ID 0x201708UL
