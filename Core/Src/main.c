@@ -151,7 +151,7 @@ const int32_t KTY_LookupT[] = {-55,-50,-40,-30,-20,-10,0,10,20,25,30,40,50,60,70
 const uint16_t KTY_LookupSize = 24;
 #endif
 #ifdef USE_AMK_MOTOR
-volatile int32_t Encoder_os = 4457;
+volatile int32_t Encoder_os = 4450;
 const int32_t KTY_LookupR[] = {359,391,424,460,498,538,581,603,626,672,722,773,826,882,940,1000,1062,1127,1194,1262,1334,1407,1482,1560,1640,1722,1807,1893,1982,2073,2166,2261,2357,2452,2542,2624};
 const int32_t KTY_LookupT[] = {-40,-30,-20,-10,0,10,20,25,30,40,50,60,70,80,90,100,110,120,130,140,150,160,170,180,190,200,210,220,230,240,250,260,270,280,290,300};
 const uint16_t KTY_LookupSize = 36;
@@ -163,7 +163,7 @@ volatile float I_a, I_b, I_q, I_d;
 volatile float cmd_q = 0.0f, cmd_d = 0.0f;
 volatile float cmd_a = 0.0f, cmd_b = 0.0f;
 volatile float integ_q = 0.0f, integ_d = 0.0f;
-volatile float Kp_Iq = 0.0f, Ki_Iq = 0.5f;
+volatile float Kp_Iq = 0.0f, Ki_Iq = 2.0f;
 volatile float Kp_Id = 0.0f, Ki_Id = 0.2f;
 volatile float I_d_err, I_q_err;
 volatile float TargetCurrent = 0.0f;
@@ -430,7 +430,7 @@ int main(void)
       motor_PhysPosition = motor_lastPhysPosition + motor_speed*(motor_lastMeasTime - motor_last2MeasTime);
     }
     else{
-      motor_speed += (motor_speed_new - motor_speed) * 0.2f;
+      motor_speed += (motor_speed_new - motor_speed) * 0.1f;
     }
     #endif
 
@@ -469,9 +469,9 @@ int main(void)
           case 4:
             TxHeader.Identifier = CAN_DEBUG_ID;
             TxHeader.DataLength = FDCAN_DLC_BYTES_8;
-            uint32_t temp = motor_PhysPosition;
+            int32_t temp = cmd_q * 10000.0f;
             memcpy(&TxData[0], &temp, 4);
-            temp = motor_ElecPosition * 100.0f;
+            temp = cmd_d * 10000.0f;
             memcpy(&TxData[4], &temp, 4);
             sendCANBus_flag--;
             HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan2, &TxHeader, TxData);

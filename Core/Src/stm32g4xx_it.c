@@ -46,6 +46,7 @@
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN PV */
 volatile uint32_t x = 0;
+volatile float RpmSafetyMult;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -355,8 +356,10 @@ void HRTIM1_Master_IRQHandler(void)
   I_d = I_a * cos_elec_position + I_b * sin_elec_position;
   I_q = I_b * cos_elec_position - I_a * sin_elec_position;
   // PI controllers on Q and D
-  I_d_err = TargetFieldWk - I_d;
-  I_q_err = TargetCurrent - I_q;
+  RpmSafetyMult = (fabsf(motor_speed) > MAX_SPEED * 0.9) ? 
+    (MAX_SPEED - fabsf(motor_speed)) / MAX_SPEED * 10.0f : 1.0f;
+  I_d_err = TargetFieldWk * RpmSafetyMult - I_d;
+  I_q_err = TargetCurrent * RpmSafetyMult - I_q;
   integ_d += I_d_err * Ki_Id * 25e-6f;
   integ_d = (integ_d > MAX_CMD_D) ? MAX_CMD_D : integ_d;
   integ_d = (integ_d < MIN_CMD_D) ? MIN_CMD_D : integ_d;
