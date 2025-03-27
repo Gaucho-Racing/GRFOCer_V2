@@ -18,7 +18,7 @@
 #define W_TIMER LL_HRTIM_TIMER_C
 
 #define GATE_DRIVER_RESET_US 1U
-#define deadTime 640
+#define deadTime 1280
 
 // #define USE_EMRAX_MOTOR
 #define USE_AMK_MOTOR
@@ -36,7 +36,7 @@
 #define N_POLES 5U
 #define Kt 0.26f
 #define J 2.74e-4f
-#define MAX_SPEED 20000/60*N_STEP_ENCODER
+#define MAX_SPEED 2000.0f/60.0f*1e-6f*N_STEP_ENCODER
 #endif
 
 // FOC constants

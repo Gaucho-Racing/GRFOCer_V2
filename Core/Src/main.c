@@ -64,6 +64,74 @@ uint8_t TxData[8];
 
 char printBuffer[1024];
 
+// Fast math tables
+const float sin_LookupX[] = {
+  0.  , 0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.1 ,
+  0.11, 0.12, 0.13, 0.14, 0.15, 0.16, 0.17, 0.18, 0.19, 0.2 , 0.21,
+  0.22, 0.23, 0.24, 0.25, 0.26, 0.27, 0.28, 0.29, 0.3 , 0.31, 0.32,
+  0.33, 0.34, 0.35, 0.36, 0.37, 0.38, 0.39, 0.4 , 0.41, 0.42, 0.43,
+  0.44, 0.45, 0.46, 0.47, 0.48, 0.49, 0.5 , 0.51, 0.52, 0.53, 0.54,
+  0.55, 0.56, 0.57, 0.58, 0.59, 0.6 , 0.61, 0.62, 0.63, 0.64, 0.65,
+  0.66, 0.67, 0.68, 0.69, 0.7 , 0.71, 0.72, 0.73, 0.74, 0.75, 0.76,
+  0.77, 0.78, 0.79, 0.8 , 0.81, 0.82, 0.83, 0.84, 0.85, 0.86, 0.87,
+  0.88, 0.89, 0.9 , 0.91, 0.92, 0.93, 0.94, 0.95, 0.96, 0.97, 0.98,
+  0.99};
+const float sin_LookupY[] = {
+  0.00000000e+00,  6.27905195e-02,  1.25333234e-01,  1.87381315e-01,
+  2.48689887e-01,  3.09016994e-01,  3.68124553e-01,  4.25779292e-01,
+  4.81753674e-01,  5.35826795e-01,  5.87785252e-01,  6.37423990e-01,
+  6.84547106e-01,  7.28968627e-01,  7.70513243e-01,  8.09016994e-01,
+  8.44327926e-01,  8.76306680e-01,  9.04827052e-01,  9.29776486e-01,
+  9.51056516e-01,  9.68583161e-01,  9.82287251e-01,  9.92114701e-01,
+  9.98026728e-01,  1.00000000e+00,  9.98026728e-01,  9.92114701e-01,
+  9.82287251e-01,  9.68583161e-01,  9.51056516e-01,  9.29776486e-01,
+  9.04827052e-01,  8.76306680e-01,  8.44327926e-01,  8.09016994e-01,
+  7.70513243e-01,  7.28968627e-01,  6.84547106e-01,  6.37423990e-01,
+  5.87785252e-01,  5.35826795e-01,  4.81753674e-01,  4.25779292e-01,
+  3.68124553e-01,  3.09016994e-01,  2.48689887e-01,  1.87381315e-01,
+  1.25333234e-01,  6.27905195e-02,  1.22464680e-16, -6.27905195e-02,
+  -1.25333234e-01, -1.87381315e-01, -2.48689887e-01, -3.09016994e-01,
+  -3.68124553e-01, -4.25779292e-01, -4.81753674e-01, -5.35826795e-01,
+  -5.87785252e-01, -6.37423990e-01, -6.84547106e-01, -7.28968627e-01,
+  -7.70513243e-01, -8.09016994e-01, -8.44327926e-01, -8.76306680e-01,
+  -9.04827052e-01, -9.29776486e-01, -9.51056516e-01, -9.68583161e-01,
+  -9.82287251e-01, -9.92114701e-01, -9.98026728e-01, -1.00000000e+00,
+  -9.98026728e-01, -9.92114701e-01, -9.82287251e-01, -9.68583161e-01,
+  -9.51056516e-01, -9.29776486e-01, -9.04827052e-01, -8.76306680e-01,
+  -8.44327926e-01, -8.09016994e-01, -7.70513243e-01, -7.28968627e-01,
+  -6.84547106e-01, -6.37423990e-01, -5.87785252e-01, -5.35826795e-01,
+  -4.81753674e-01, -4.25779292e-01, -3.68124553e-01, -3.09016994e-01,
+  -2.48689887e-01, -1.87381315e-01, -1.25333234e-01, -6.27905195e-02
+};
+const float cos_LookupY[] = {
+  1.00000000e+00,  9.98026728e-01,  9.92114701e-01,  9.82287251e-01,
+  9.68583161e-01,  9.51056516e-01,  9.29776486e-01,  9.04827052e-01,
+  8.76306680e-01,  8.44327926e-01,  8.09016994e-01,  7.70513243e-01,
+  7.28968627e-01,  6.84547106e-01,  6.37423990e-01,  5.87785252e-01,
+  5.35826795e-01,  4.81753674e-01,  4.25779292e-01,  3.68124553e-01,
+  3.09016994e-01,  2.48689887e-01,  1.87381315e-01,  1.25333234e-01,
+  6.27905195e-02,  6.12323400e-17, -6.27905195e-02, -1.25333234e-01,
+  -1.87381315e-01, -2.48689887e-01, -3.09016994e-01, -3.68124553e-01,
+  -4.25779292e-01, -4.81753674e-01, -5.35826795e-01, -5.87785252e-01,
+  -6.37423990e-01, -6.84547106e-01, -7.28968627e-01, -7.70513243e-01,
+  -8.09016994e-01, -8.44327926e-01, -8.76306680e-01, -9.04827052e-01,
+  -9.29776486e-01, -9.51056516e-01, -9.68583161e-01, -9.82287251e-01,
+  -9.92114701e-01, -9.98026728e-01, -1.00000000e+00, -9.98026728e-01,
+  -9.92114701e-01, -9.82287251e-01, -9.68583161e-01, -9.51056516e-01,
+  -9.29776486e-01, -9.04827052e-01, -8.76306680e-01, -8.44327926e-01,
+  -8.09016994e-01, -7.70513243e-01, -7.28968627e-01, -6.84547106e-01,
+  -6.37423990e-01, -5.87785252e-01, -5.35826795e-01, -4.81753674e-01,
+  -4.25779292e-01, -3.68124553e-01, -3.09016994e-01, -2.48689887e-01,
+  -1.87381315e-01, -1.25333234e-01, -6.27905195e-02, -1.83697020e-16,
+  6.27905195e-02,  1.25333234e-01,  1.87381315e-01,  2.48689887e-01,
+  3.09016994e-01,  3.68124553e-01,  4.25779292e-01,  4.81753674e-01,
+  5.35826795e-01,  5.87785252e-01,  6.37423990e-01,  6.84547106e-01,
+  7.28968627e-01,  7.70513243e-01,  8.09016994e-01,  8.44327926e-01,
+  8.76306680e-01,  9.04827052e-01,  9.29776486e-01,  9.51056516e-01,
+  9.68583161e-01,  9.82287251e-01,  9.92114701e-01,  9.98026728e-01
+};
+const uint16_t math_LookupSize = 100;
+
 // Motor variables
 volatile bool SPI_Wait = false;
 volatile uint8_t SPI_WaitState = 0;
@@ -74,19 +142,19 @@ volatile uint32_t motor_lastMeasTime;
 uint32_t motor_last2MeasTime;
 volatile float motor_ElecPosition;
 volatile float U_current, V_current, W_current;
-volatile float motor_speed = 0; // encoder LSBs / second
+volatile float motor_speed = 0; // encoder LSBs / us
 int32_t KTY_Temperature;
 #ifdef USE_EMRAX_MOTOR
 volatile int32_t Encoder_os = 731; // encoder offset angle
-int32_t KTY_LookupR[] = {980,1030,1135,1247,1367,1495,1630,1772,1922,2000,2080,2245,2417,2597,2785,2980,3182,3392,3607,3817,3915,4008,4166,4280};
-int32_t KTY_LookupT[] = {-55,-50,-40,-30,-20,-10,0,10,20,25,30,40,50,60,70,80,90,100,110,120,125,130,140,150};
-uint16_t KTY_LookupSize = 24;
+const int32_t KTY_LookupR[] = {980,1030,1135,1247,1367,1495,1630,1772,1922,2000,2080,2245,2417,2597,2785,2980,3182,3392,3607,3817,3915,4008,4166,4280};
+const int32_t KTY_LookupT[] = {-55,-50,-40,-30,-20,-10,0,10,20,25,30,40,50,60,70,80,90,100,110,120,125,130,140,150};
+const uint16_t KTY_LookupSize = 24;
 #endif
 #ifdef USE_AMK_MOTOR
-volatile int32_t Encoder_os = -8650;
-int32_t KTY_LookupR[] = {359,391,424,460,498,538,581,603,626,672,722,773,826,882,940,1000,1062,1127,1194,1262,1334,1407,1482,1560,1640,1722,1807,1893,1982,2073,2166,2261,2357,2452,2542,2624};
-int32_t KTY_LookupT[] = {-40,-30,-20,-10,0,10,20,25,30,40,50,60,70,80,90,100,110,120,130,140,150,160,170,180,190,200,210,220,230,240,250,260,270,280,290,300};
-uint16_t KTY_LookupSize = 36;
+volatile int32_t Encoder_os = 4457;
+const int32_t KTY_LookupR[] = {359,391,424,460,498,538,581,603,626,672,722,773,826,882,940,1000,1062,1127,1194,1262,1334,1407,1482,1560,1640,1722,1807,1893,1982,2073,2166,2261,2357,2452,2542,2624};
+const int32_t KTY_LookupT[] = {-40,-30,-20,-10,0,10,20,25,30,40,50,60,70,80,90,100,110,120,130,140,150,160,170,180,190,200,210,220,230,240,250,260,270,280,290,300};
+const uint16_t KTY_LookupSize = 36;
 #endif
 
 // FOC variables
@@ -95,7 +163,7 @@ volatile float I_a, I_b, I_q, I_d;
 volatile float cmd_q = 0.0f, cmd_d = 0.0f;
 volatile float cmd_a = 0.0f, cmd_b = 0.0f;
 volatile float integ_q = 0.0f, integ_d = 0.0f;
-volatile float Kp_Iq = 0.1f, Ki_Iq = 1.0f;
+volatile float Kp_Iq = 0.0f, Ki_Iq = 0.5f;
 volatile float Kp_Id = 0.0f, Ki_Id = 0.2f;
 volatile float I_d_err, I_q_err;
 volatile float TargetCurrent = 0.0f;
@@ -133,7 +201,7 @@ float dt_f = 33e-6f; // seconds
 volatile int32_t dt_i = 33; // microseconds
 
 // CANBus stuff
-volatile bool sendCANBus_flag = false;
+volatile uint8_t sendCANBus_flag = 0;
 
 /* USER CODE END PV */
 
@@ -141,10 +209,13 @@ volatile bool sendCANBus_flag = false;
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
 void printCANBus(char* text);
+
 void resetGateDriver();
 void disableGateDriver();
 void writePwm(uint32_t timer, int32_t duty);
+
 int32_t lookupTbl(const int32_t* source, const int32_t* target, const uint32_t size, const int32_t value);
+float lookupTblf(const float* source, const float* target, const uint32_t size, const float value);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -309,7 +380,7 @@ int main(void)
     SPI_Wait = true;
     SPI_WaitState = 0;
     SPI_buf = 0;
-    LL_SPI_TransmitData16(SPI1, 0b0000011100U); // send mode 1: Encoder send position values
+    LL_SPI_TransmitData16(SPI1, 28U); // send mode 1 (0b0000011100): Encoder send position values
     #endif
 
     // read gate driver status (FLT and RDY pins)
@@ -353,38 +424,64 @@ int main(void)
     }
     motor_PhysPosition = (SPI_buf >> 4) & (N_STEP_ENCODER-1);
     // calculate motor speed
-    motor_speed += ((int16_t)((motor_PhysPosition - motor_lastPhysPosition) & 0xFFFF)
-      * 1e6f / (motor_lastMeasTime - motor_last2MeasTime) - motor_speed) * 0.2f;
+    float motor_speed_new = (int16_t)((motor_PhysPosition - motor_lastPhysPosition) & 0xFFFF)
+    / (float)(motor_lastMeasTime - motor_last2MeasTime);
+    if (fabsf(motor_speed_new - motor_speed) > 40000.0f){
+      motor_PhysPosition = motor_lastPhysPosition + motor_speed*(motor_lastMeasTime - motor_last2MeasTime);
+    }
+    else{
+      motor_speed += (motor_speed_new - motor_speed) * 0.2f;
+    }
     #endif
 
-    if (sendCANBus_flag) {
-      sendCANBus_flag = false;
-
-      TxHeader.Identifier = CAN_STAT1_ID;
-      TxHeader.DataLength = FDCAN_DLC_BYTES_6;
-      int16_t AC_current = I_q * 100.0f;
-      int16_t DC_current = I_d * 100.0f;//(fabsf(I_q) + fabsf(I_d)) * SVPWM_mag * 100.0f; // fix formula
-      int16_t motor_speed_scaled = motor_speed * 0.00091552734375f;
-      memcpy(&TxData[0], &AC_current, 2);
-      memcpy(&TxData[2], &DC_current, 2);
-      memcpy(&TxData[4], &motor_speed_scaled, 2);
-      HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan2, &TxHeader, TxData);
-
-      TxHeader.Identifier = CAN_STAT2_ID;
-      TxHeader.DataLength = FDCAN_DLC_BYTES_3;
-      TxData[0] = U_temp + 40;
-      TxData[1] = V_temp + 40;
-      TxData[2] = W_temp + 40;
-      HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan2, &TxHeader, TxData);
-
-      TxHeader.Identifier = CAN_DEBUG_ID;
-      TxHeader.DataLength = FDCAN_DLC_BYTES_5;
-      uint32_t temp = motor_PhysPosition;
-      memcpy(&TxData[0], &temp, 4);
-      TxData[4] = motor_lastMeasTime - motor_last2MeasTime;
-      HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan2, &TxHeader, TxData);
+    if (sendCANBus_flag != 0){
+      if (HAL_FDCAN_GetTxFifoFreeLevel(&hfdcan2) != 0){
+        switch (sendCANBus_flag) {
+          case 1:
+            TxHeader.Identifier = CAN_STAT1_ID;
+            TxHeader.DataLength = FDCAN_DLC_BYTES_6;
+            int16_t AC_current = I_q * 100.0f;
+            int16_t DC_current = I_d * 100.0f;//(fabsf(I_q) + fabsf(I_d)) * SVPWM_mag * 100.0f; // fix formula
+            int16_t motor_speed_scaled = motor_speed * 915.52734375f;
+            memcpy(&TxData[0], &AC_current, 2);
+            memcpy(&TxData[2], &DC_current, 2);
+            memcpy(&TxData[4], &motor_speed_scaled, 2);
+            sendCANBus_flag--;
+            HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan2, &TxHeader, TxData);
+            break;
+          case 2:
+            TxHeader.Identifier = CAN_STAT2_ID;
+            TxHeader.DataLength = FDCAN_DLC_BYTES_3;
+            TxData[0] = U_temp + 40;
+            TxData[1] = V_temp + 40;
+            TxData[2] = W_temp + 40;
+            sendCANBus_flag--;
+            HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan2, &TxHeader, TxData);
+            break;
+          case 3:
+            TxHeader.Identifier = CAN_STAT3_ID;
+            TxHeader.DataLength = FDCAN_DLC_BYTES_2;
+            TxData[0] = KTY_Temperature + 40;
+            TxData[1] = 0; // TODO
+            sendCANBus_flag--;
+            HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan2, &TxHeader, TxData);
+            break;
+          case 4:
+            TxHeader.Identifier = CAN_DEBUG_ID;
+            TxHeader.DataLength = FDCAN_DLC_BYTES_8;
+            uint32_t temp = motor_PhysPosition;
+            memcpy(&TxData[0], &temp, 4);
+            temp = motor_ElecPosition * 100.0f;
+            memcpy(&TxData[4], &temp, 4);
+            sendCANBus_flag--;
+            HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan2, &TxHeader, TxData);
+            break;
+          default:
+            break;
+        }
+      }
     }
-
+    
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -537,6 +634,25 @@ int32_t lookupTbl(const int32_t* source, const int32_t* target, const uint32_t s
       return target[middle];
     }
     middle = (left + right) >> 1;
+  }
+  return (value - source[left]) * (target[right] - target[left]) / (source[right] - source[left]) + target[left];
+}
+
+float lookupTblf(const float* source, const float* target, const uint32_t size, const float value){
+  uint32_t left = 0;
+  uint32_t right = size - 1;
+  uint32_t middle = (left + right) * 0.5f;
+  while (right - left > 1) {
+    if (source[middle] < value) {
+      left = middle;
+    }
+    else if (source[middle] > value){
+      right = middle;
+    }
+    else {
+      return target[middle];
+    }
+    middle = (left + right) * 0.5f;
   }
   return (value - source[left]) * (target[right] - target[left]) / (source[right] - source[left]) + target[left];
 }

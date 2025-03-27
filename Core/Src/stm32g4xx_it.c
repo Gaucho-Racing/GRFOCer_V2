@@ -96,9 +96,15 @@ extern volatile float SVPWM_Tb1, SVPWM_Tb2;
 extern volatile float SVPWM_beta;
 extern volatile float duty_u, duty_v, duty_w;
 
-extern volatile bool sendCANBus_flag;
+extern volatile uint8_t sendCANBus_flag;
 
 extern void writePwm(uint32_t timer, int32_t duty);
+extern int32_t lookupTbl(const int32_t* source, const int32_t* target, const uint32_t size, const int32_t value);
+extern float lookupTblf(const float* source, const float* target, const uint32_t size, const float value);
+extern const float sin_LookupX[];
+extern const float sin_LookupY[];
+extern const float cos_LookupY[];
+extern const uint16_t math_LookupSize;
 /* USER CODE END EV */
 
 /******************************************************************************/
@@ -315,7 +321,7 @@ void TIM7_DAC_IRQHandler(void)
 {
   /* USER CODE BEGIN TIM7_DAC_IRQn 0 */
   LL_TIM_ClearFlag_UPDATE(TIM7);
-  sendCANBus_flag = true;
+  sendCANBus_flag = 4;
   /* USER CODE END TIM7_DAC_IRQn 0 */
 
   /* USER CODE BEGIN TIM7_DAC_IRQn 1 */
@@ -336,12 +342,12 @@ void HRTIM1_Master_IRQHandler(void)
   V_current = (adc_data[1] - adc_os[1]) * 0.075f;
   W_current = (adc_data[2] - adc_os[2]) * 0.075f;
   // FOC
-  motor_ElecPosition = fmodf((motor_PhysPosition + Encoder_os + (TIM2->CNT - motor_lastMeasTime)*motor_speed*1e-6f)
-    * N_POLES / (float)N_STEP_ENCODER, 1.0f) * PIx2; // radians
-  // arm_sin_cos_f32(motor_ElecPosition, &sin_elec_position, &cos_elec_position);
-  // motor_ElecPosition = 0.0f;
-  sin_elec_position = sinf(motor_ElecPosition);
-  cos_elec_position = cosf(motor_ElecPosition);
+  motor_ElecPosition = fmodf(((float)(motor_PhysPosition + Encoder_os) + (TIM2->CNT - motor_lastMeasTime)*motor_speed)
+    * (float)N_POLES / (float)N_STEP_ENCODER, 1.0f);
+  sin_elec_position = lookupTblf(sin_LookupX, sin_LookupY, math_LookupSize, motor_ElecPosition);
+  cos_elec_position = lookupTblf(sin_LookupX, cos_LookupY, math_LookupSize, motor_ElecPosition);
+  // sin_elec_position = sinf(motor_ElecPosition * PIx2);
+  // cos_elec_position = cosf(motor_ElecPosition * PIx2);
   // Clarke transform
   I_a = U_current * 0.66666667f - V_current * 0.33333333f - W_current * 0.33333333f;
   I_b = sqrt3_1o * (V_current - W_current);
@@ -354,14 +360,11 @@ void HRTIM1_Master_IRQHandler(void)
   integ_d += I_d_err * Ki_Id * 25e-6f;
   integ_d = (integ_d > MAX_CMD_D) ? MAX_CMD_D : integ_d;
   integ_d = (integ_d < MIN_CMD_D) ? MIN_CMD_D : integ_d;
-  // cmd_d = (abs(motor_speed) > MAX_SPEED) ? 0.0f : (I_d_err * Kp_Id + integ_d);
   cmd_d = I_d_err * Kp_Id + integ_d;
   integ_q += I_q_err * Ki_Iq * 25e-6f;
   integ_q = (integ_q > MAX_CMD_Q) ? MAX_CMD_Q : integ_q;
   integ_q = (integ_q < MIN_CMD_Q) ? MIN_CMD_Q : integ_q;
-  // cmd_q = (abs(motor_speed) > MAX_SPEED) ? 0.0f : (I_q_err * Kp_Iq + integ_q);
   cmd_q = I_q_err * Kp_Iq + integ_q;
-  // cmd_q = 0.15f; cmd_d = 0.0f;
   // Inverse Park transform
   cmd_a = cmd_d * cos_elec_position - cmd_q * sin_elec_position;
   cmd_b = cmd_q * cos_elec_position + cmd_d * sin_elec_position;
