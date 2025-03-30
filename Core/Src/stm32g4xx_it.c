@@ -77,6 +77,7 @@ extern volatile int32_t Encoder_os;
 extern volatile uint32_t motor_lastMeasTime;
 extern volatile float motor_speed;
 extern volatile float U_current, V_current, W_current;
+extern volatile float I_q_avg, I_d_avg;
 
 extern volatile float sin_elec_position, cos_elec_position;
 extern volatile float I_a, I_b, I_q, I_d;
@@ -331,12 +332,12 @@ void TIM7_DAC_IRQHandler(void)
 }
 
 /**
-  * @brief This function handles HRTIM master timer global interrupt.
+  * @brief This function handles HRTIM timer B global interrupt.
   */
-void HRTIM1_Master_IRQHandler(void)
+void HRTIM1_TIMB_IRQHandler(void)
 {
-  /* USER CODE BEGIN HRTIM1_Master_IRQn 0 */
-  LL_HRTIM_ClearFlag_REP(HRTIM1, LL_HRTIM_TIMER_MASTER);
+  /* USER CODE BEGIN HRTIM1_TIMB_IRQn 0 */
+  LL_HRTIM_ClearFlag_REP(HRTIM1, LL_HRTIM_TIMER_B);
   LL_GPIO_SetOutputPin(GPIOC, LL_GPIO_PIN_0);
   // convert ADC values to phase current
   U_current = (adc_data[0] - adc_os[0]) * 0.075f;
@@ -355,6 +356,8 @@ void HRTIM1_Master_IRQHandler(void)
   // Park transform
   I_d = I_a * cos_elec_position + I_b * sin_elec_position;
   I_q = I_b * cos_elec_position - I_a * sin_elec_position;
+  I_d_avg += (I_d - I_d_avg) * 0.001f;
+  I_q_avg += (I_q - I_q_avg) * 0.001f;
   // PI controllers on Q and D
   RpmSafetyMult = (fabsf(motor_speed) > MAX_SPEED * 0.9) ? 
     (MAX_SPEED - fabsf(motor_speed)) / MAX_SPEED * 10.0f : 1.0f;
@@ -379,12 +382,9 @@ void HRTIM1_Master_IRQHandler(void)
   writePwm(V_TIMER, duty_v * -32000.0f + 32000);
   writePwm(W_TIMER, duty_w * -32000.0f + 32000);
   // SVPWM generation
-  // arm_sqrt_f32(cmd_a*cmd_a + cmd_b*cmd_b, &SVPWM_mag);
   // SVPWM_mag = hypotf(cmd_b, cmd_a);
-  // // arm_atan2_f32(cmd_b, cmd_a, &SVPWM_ang);
   // SVPWM_ang = atan2f(cmd_b, cmd_a);
   // SVPWM_ang += PI;
-  // SVPWM_mag = (SVPWM_mag > sqrt3_1o) ? sqrt3_1o : SVPWM_mag;
   // SVPWM_sector = (uint8_t)(SVPWM_ang * PI_3o);
   // SVPWM_beta = SVPWM_ang - PIo3 * SVPWM_sector;
   // SVPWM_Tb1 = SVPWM_mag * sinf(PIo3 - SVPWM_beta);
@@ -393,7 +393,6 @@ void HRTIM1_Master_IRQHandler(void)
   // SVPWM_Ti[1] = SVPWM_Tb1 + SVPWM_Tb2 + SVPWM_Ti[0];
   // SVPWM_Ti[2] = SVPWM_Tb2 + SVPWM_Ti[0];
   // SVPWM_Ti[3] = SVPWM_Tb1 + SVPWM_Ti[0];
-  // Update duty cycle
   // duty_u = SVPWM_Ti[SVPWM_PermuataionMatrix[SVPWM_sector][0]];
   // duty_v = SVPWM_Ti[SVPWM_PermuataionMatrix[SVPWM_sector][1]];
   // duty_w = SVPWM_Ti[SVPWM_PermuataionMatrix[SVPWM_sector][2]];
@@ -401,11 +400,11 @@ void HRTIM1_Master_IRQHandler(void)
   // writePwm(V_TIMER, duty_v * 64000.0f);
   // writePwm(W_TIMER, duty_w * 64000.0f);
   LL_GPIO_ResetOutputPin(GPIOC, LL_GPIO_PIN_0);
-  /* USER CODE END HRTIM1_Master_IRQn 0 */
+  /* USER CODE END HRTIM1_TIMB_IRQn 0 */
 
-  /* USER CODE BEGIN HRTIM1_Master_IRQn 1 */
+  /* USER CODE BEGIN HRTIM1_TIMB_IRQn 1 */
 
-  /* USER CODE END HRTIM1_Master_IRQn 1 */
+  /* USER CODE END HRTIM1_TIMB_IRQn 1 */
 }
 
 /**

@@ -18,14 +18,14 @@
 #define W_TIMER LL_HRTIM_TIMER_C
 
 #define GATE_DRIVER_RESET_US 1U
-#define deadTime 480
+#define deadTime 640
 
 // #define USE_EMRAX_MOTOR
 #define USE_AMK_MOTOR
 
 #ifdef USE_EMRAX_MOTOR
 #define N_STEP_ENCODER 8192
-#define N_POLES 10U
+#define N_POLES 10
 #define Kt 0.94f
 #define J 0.02521f
 #define MAX_SPEED 5500/60*N_STEP_ENCODER
@@ -33,7 +33,7 @@
 #ifdef USE_AMK_MOTOR
 //#define N_STEP_ENCODER 262144
 #define N_STEP_ENCODER 65536 // waveform appears to be 17-bit, first bit is too noisy so 16-bit
-#define N_POLES 5U
+#define N_POLES 5
 #define Kt 0.26f
 #define J 2.74e-4f
 #define MAX_SPEED 20000.0f/60.0f*1e-6f*N_STEP_ENCODER

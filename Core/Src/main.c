@@ -160,11 +160,12 @@ const uint16_t KTY_LookupSize = 36;
 // FOC variables
 volatile float sin_elec_position, cos_elec_position;
 volatile float I_a, I_b, I_q, I_d;
+volatile float I_q_avg, I_d_avg;
 volatile float cmd_q = 0.0f, cmd_d = 0.0f;
 volatile float cmd_a = 0.0f, cmd_b = 0.0f;
 volatile float integ_q = 0.0f, integ_d = 0.0f;
-volatile float Kp_Iq = 0.0f, Ki_Iq = 2.0f;
-volatile float Kp_Id = 0.0f, Ki_Id = 0.2f;
+volatile float Kp_Iq = 0.0f, Ki_Iq = 1.0f;
+volatile float Kp_Id = 0.0f, Ki_Id = 0.1f;
 volatile float I_d_err, I_q_err;
 volatile float TargetCurrent = 0.0f;
 volatile float TargetFieldWk = 0.0f;
@@ -193,7 +194,7 @@ uint8_t U_temp, V_temp, W_temp;
 uint32_t NTC_period, NTC_dutyCycle, NTC_Resistance;
 
 // ADC variables
-volatile int16_t adc_os[3] = {2000, 2000, 2000};
+volatile int16_t adc_os[3] = {0, 0, 0};
 
 // timing stuff
 uint32_t micros = 0, lastMicros = 0;
@@ -346,8 +347,8 @@ int main(void)
   adc_os[1] = adc_os[1] >> 3;
   adc_os[2] = adc_os[2] >> 3;
 
-  // enable HRTIM master interrupt(FOC calculations)
-  LL_HRTIM_EnableIT_REP(HRTIM1, LL_HRTIM_TIMER_MASTER);
+  // enable HRTIM timer B interrupt(FOC calculations)
+  LL_HRTIM_EnableIT_REP(HRTIM1, LL_HRTIM_TIMER_B);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -426,12 +427,13 @@ int main(void)
     // calculate motor speed
     float motor_speed_new = (int16_t)((motor_PhysPosition - motor_lastPhysPosition) & 0xFFFF)
     / (float)(motor_lastMeasTime - motor_last2MeasTime);
-    if (fabsf(motor_speed_new - motor_speed) > 40000.0f){
-      motor_PhysPosition = motor_lastPhysPosition + motor_speed*(motor_lastMeasTime - motor_last2MeasTime);
-    }
-    else{
-      motor_speed += (motor_speed_new - motor_speed) * 0.1f;
-    }
+    // if (fabsf(motor_speed_new - motor_speed) > Kt * fabsf(I_q_avg) / J / PIx2 * N_STEP_ENCODER){
+    //   motor_PhysPosition = motor_lastPhysPosition + motor_speed*(motor_lastMeasTime - motor_last2MeasTime);
+    // }
+    // else{
+    //   motor_speed += (motor_speed_new - motor_speed) * 0.1f;
+    // }
+    motor_speed += (motor_speed_new - motor_speed) * 0.1f;
     #endif
 
     if (sendCANBus_flag != 0){
@@ -441,7 +443,12 @@ int main(void)
             TxHeader.Identifier = CAN_STAT1_ID;
             TxHeader.DataLength = FDCAN_DLC_BYTES_6;
             int16_t AC_current = I_q * 100.0f;
-            int16_t DC_current = I_d * 100.0f;//(fabsf(I_q) + fabsf(I_d)) * SVPWM_mag * 100.0f; // fix formula
+            int16_t DC_current = U_current * 100.0f; // TODO: find right formula
+            if (AC_current < 100 && TargetCurrent == 0.0f) {
+              adc_os[0] = adc_data[0];
+              adc_os[1] = adc_data[1];
+              adc_os[2] = adc_data[2];
+            }
             int16_t motor_speed_scaled = motor_speed * 915.52734375f;
             memcpy(&TxData[0], &AC_current, 2);
             memcpy(&TxData[2], &DC_current, 2);
@@ -469,9 +476,9 @@ int main(void)
           case 4:
             TxHeader.Identifier = CAN_DEBUG_ID;
             TxHeader.DataLength = FDCAN_DLC_BYTES_8;
-            int32_t temp = cmd_q * 10000.0f;
+            int32_t temp = V_current * 100.0f;
             memcpy(&TxData[0], &temp, 4);
-            temp = cmd_d * 10000.0f;
+            temp = W_current * 100.0f;
             memcpy(&TxData[4], &temp, 4);
             sendCANBus_flag--;
             HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan2, &TxHeader, TxData);
