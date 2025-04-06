@@ -28,7 +28,7 @@
 #define N_POLES 10
 #define Kt 0.94f
 #define J 0.02521f
-#define MAX_SPEED 5500/60*N_STEP_ENCODER
+#define MAX_SPEED 5500/60.0f*1e-6f*N_STEP_ENCODER
 #endif
 #ifdef USE_AMK_MOTOR
 //#define N_STEP_ENCODER 262144

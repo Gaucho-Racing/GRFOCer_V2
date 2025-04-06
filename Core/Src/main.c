@@ -33,7 +33,7 @@
 #include <string.h>
 #include <stdbool.h>
 #include <stdlib.h>
-#include "arm_math.h"
+// #include "arm_math.h"
 #include "defines.h"
 /* USER CODE END Includes */
 
@@ -76,6 +76,20 @@ const float sin_LookupX[] = {
   0.77, 0.78, 0.79, 0.8 , 0.81, 0.82, 0.83, 0.84, 0.85, 0.86, 0.87,
   0.88, 0.89, 0.9 , 0.91, 0.92, 0.93, 0.94, 0.95, 0.96, 0.97, 0.98,
   0.99};
+const int32_t sin_LookupXl[] = {
+      0,   661,  1323,  1985,  2647,  3309,  3971,  4633,  5295,
+   5957,  6619,  7281,  7943,  8605,  9267,  9929, 10591, 11253,
+  11915, 12577, 13239, 13901, 14563, 15225, 15887, 16549, 17211,
+  17873, 18535, 19197, 19859, 20521, 21183, 21845, 22506, 23168,
+  23830, 24492, 25154, 25816, 26478, 27140, 27802, 28464, 29126,
+  29788, 30450, 31112, 31774, 32436, 33098, 33760, 34422, 35084,
+  35746, 36408, 37070, 37732, 38394, 39056, 39718, 40380, 41042,
+  41704, 42366, 43028, 43690, 44351, 45013, 45675, 46337, 46999,
+  47661, 48323, 48985, 49647, 50309, 50971, 51633, 52295, 52957,
+  53619, 54281, 54943, 55605, 56267, 56929, 57591, 58253, 58915,
+  59577, 60239, 60901, 61563, 62225, 62887, 63549, 64211, 64873,
+  65535
+};
 const float sin_LookupY[] = {
   0.00000000e+00,  6.27905195e-02,  1.25333234e-01,  1.87381315e-01,
   2.48689887e-01,  3.09016994e-01,  3.68124553e-01,  4.25779292e-01,
@@ -142,22 +156,23 @@ volatile uint32_t motor_lastMeasTime;
 uint32_t motor_last2MeasTime;
 volatile float motor_ElecPosition;
 volatile float U_current, V_current, W_current;
-volatile float motor_speed = 0; // encoder LSBs / us
+volatile float motor_speed = 0.0f; // encoder LSBs / us
 int32_t KTY_Temperature;
 #ifdef USE_EMRAX_MOTOR
-volatile int32_t Encoder_os = 731; // encoder offset angle
+volatile int32_t Encoder_os = 449; // encoder offset angle
 const int32_t KTY_LookupR[] = {980,1030,1135,1247,1367,1495,1630,1772,1922,2000,2080,2245,2417,2597,2785,2980,3182,3392,3607,3817,3915,4008,4166,4280};
 const int32_t KTY_LookupT[] = {-55,-50,-40,-30,-20,-10,0,10,20,25,30,40,50,60,70,80,90,100,110,120,125,130,140,150};
 const uint16_t KTY_LookupSize = 24;
 #endif
 #ifdef USE_AMK_MOTOR
-volatile int32_t Encoder_os = 4450;
+volatile const int32_t Encoder_os = 4450;
 const int32_t KTY_LookupR[] = {359,391,424,460,498,538,581,603,626,672,722,773,826,882,940,1000,1062,1127,1194,1262,1334,1407,1482,1560,1640,1722,1807,1893,1982,2073,2166,2261,2357,2452,2542,2624};
 const int32_t KTY_LookupT[] = {-40,-30,-20,-10,0,10,20,25,30,40,50,60,70,80,90,100,110,120,130,140,150,160,170,180,190,200,210,220,230,240,250,260,270,280,290,300};
 const uint16_t KTY_LookupSize = 36;
 #endif
 
 // FOC variables
+volatile uint32_t F_sw;
 volatile float sin_elec_position, cos_elec_position;
 volatile float I_a, I_b, I_q, I_d;
 volatile float I_q_avg, I_d_avg;
@@ -217,6 +232,7 @@ void writePwm(uint32_t timer, int32_t duty);
 
 int32_t lookupTbl(const int32_t* source, const int32_t* target, const uint32_t size, const int32_t value);
 float lookupTblf(const float* source, const float* target, const uint32_t size, const float value);
+float flookupTbll(const int32_t* source, const float* target, const uint32_t size, const int32_t value);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -279,7 +295,12 @@ int main(void)
 
   // encoder setup
   ENDAT_DIR_Read;
+  #ifdef USE_EMRAX_MOTOR
+  LL_SPI_Enable(SPI1);
+  #endif
+  #ifdef USE_AMK_MOTOR
   LL_SPI_EnableIT_RXNE(SPI1);
+  #endif
 
   // Enable ADC1 (phase current sensors) with DMA
   LL_ADC_Enable(ADC1);
@@ -324,6 +345,7 @@ int main(void)
   LL_TIM_CC_EnableChannel(TIM5, LL_TIM_CHANNEL_CH2);
 
   // Enable HRTIM (gate drive signals)
+  F_sw = LL_HRTIM_TIM_GetPrescaler(HRTIM1, LL_HRTIM_TIMER_B);
   writePwm(U_TIMER, 0);
   writePwm(V_TIMER, 0);
   writePwm(W_TIMER, 0);
@@ -336,19 +358,16 @@ int main(void)
   // Gate driver setup
   resetGateDriver();
 
-  // measure ADC offset
-  for (int i = 0; i < 8; i++) {
-    LL_mDelay(1);
-    adc_os[0] += adc_data[0];
-    adc_os[1] += adc_data[1];
-    adc_os[2] += adc_data[2];
-  }
-  adc_os[0] = adc_os[0] >> 3;
-  adc_os[1] = adc_os[1] >> 3;
-  adc_os[2] = adc_os[2] >> 3;
-
   // enable HRTIM timer B interrupt(FOC calculations)
   LL_HRTIM_EnableIT_REP(HRTIM1, LL_HRTIM_TIMER_B);
+
+  // measure ADC offset
+  for (uint16_t i = 0; i < 100; i++){
+    LL_mDelay(10);
+    adc_os[0] = (adc_os[0]*3 + adc_data[0]) >> 2;
+    adc_os[1] = (adc_os[1]*3 + adc_data[1]) >> 2;
+    adc_os[2] = (adc_os[2]*3 + adc_data[2]) >> 2;
+  }
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -364,7 +383,6 @@ int main(void)
     motor_last2MeasTime = motor_lastMeasTime;
     #ifdef USE_EMRAX_MOTOR
     //RM44SI encoder
-    LL_SPI_Enable(SPI1);
     LL_SPI_TransmitData16(SPI1, 0);
     uint32_t startTime = TIM2->CNT;
     #endif
@@ -413,6 +431,7 @@ int main(void)
     while (!LL_SPI_IsActiveFlag_RXNE(SPI1)) {
       if (TIM2->CNT - startTime > 10000U) break;
     }
+    motor_lastMeasTime = TIM2->CNT - 7;
     motor_PhysPosition = LL_SPI_ReceiveData16(SPI1);
     motor_PhysPosition = (motor_PhysPosition & 0x7FFF) >> 2;
     #endif
@@ -424,39 +443,45 @@ int main(void)
       shiftAmount++;
     }
     motor_PhysPosition = (SPI_buf >> 4) & (N_STEP_ENCODER-1);
+    #endif
+
     // calculate motor speed
-    float motor_speed_new = (int16_t)((motor_PhysPosition - motor_lastPhysPosition) & 0xFFFF)
-    / (float)(motor_lastMeasTime - motor_last2MeasTime);
+    int32_t motor_PhysPositionDiff = motor_PhysPosition - motor_lastPhysPosition;
+    if (motor_PhysPositionDiff > (N_STEP_ENCODER >> 1)) {
+      motor_PhysPositionDiff -= N_STEP_ENCODER;
+    } else if (motor_PhysPositionDiff < -(N_STEP_ENCODER >> 1)) {
+      motor_PhysPositionDiff += N_STEP_ENCODER;
+    }
+    float motor_speed_new = (float)motor_PhysPositionDiff / (float)(motor_lastMeasTime - motor_last2MeasTime);
     // if (fabsf(motor_speed_new - motor_speed) > Kt * fabsf(I_q_avg) / J / PIx2 * N_STEP_ENCODER){
     //   motor_PhysPosition = motor_lastPhysPosition + motor_speed*(motor_lastMeasTime - motor_last2MeasTime);
     // }
     // else{
     //   motor_speed += (motor_speed_new - motor_speed) * 0.1f;
     // }
-    motor_speed += (motor_speed_new - motor_speed) * 0.1f;
-    #endif
+    motor_speed += (motor_speed_new - motor_speed) * 0.03f;
 
     if (sendCANBus_flag != 0){
       if (HAL_FDCAN_GetTxFifoFreeLevel(&hfdcan2) != 0){
         switch (sendCANBus_flag) {
-          case 1:
+          case 2:
             TxHeader.Identifier = CAN_STAT1_ID;
             TxHeader.DataLength = FDCAN_DLC_BYTES_6;
             int16_t AC_current = I_q * 100.0f;
-            int16_t DC_current = U_current * 100.0f; // TODO: find right formula
-            if (AC_current < 100 && TargetCurrent == 0.0f) {
-              adc_os[0] = adc_data[0];
-              adc_os[1] = adc_data[1];
-              adc_os[2] = adc_data[2];
-            }
-            int16_t motor_speed_scaled = motor_speed * 915.52734375f;
+            int16_t DC_current = I_d * 100.0f; // TODO: find right formula
+            // if (AC_current < 100 && TargetCurrent == 0.0f) {
+            //   adc_os[0] = adc_data[0];
+            //   adc_os[1] = adc_data[1];
+            //   adc_os[2] = adc_data[2];
+            // }
+            int16_t motor_speed_scaled = motor_speed * 60e6f / N_STEP_ENCODER;
             memcpy(&TxData[0], &AC_current, 2);
             memcpy(&TxData[2], &DC_current, 2);
             memcpy(&TxData[4], &motor_speed_scaled, 2);
             sendCANBus_flag--;
             HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan2, &TxHeader, TxData);
             break;
-          case 2:
+          case 3:
             TxHeader.Identifier = CAN_STAT2_ID;
             TxHeader.DataLength = FDCAN_DLC_BYTES_3;
             TxData[0] = U_temp + 40;
@@ -465,7 +490,7 @@ int main(void)
             sendCANBus_flag--;
             HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan2, &TxHeader, TxData);
             break;
-          case 3:
+          case 4:
             TxHeader.Identifier = CAN_STAT3_ID;
             TxHeader.DataLength = FDCAN_DLC_BYTES_2;
             TxData[0] = KTY_Temperature + 40;
@@ -473,15 +498,19 @@ int main(void)
             sendCANBus_flag--;
             HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan2, &TxHeader, TxData);
             break;
-          case 4:
+          case 1:
             TxHeader.Identifier = CAN_DEBUG_ID;
             TxHeader.DataLength = FDCAN_DLC_BYTES_8;
-            int32_t temp = V_current * 100.0f;
-            memcpy(&TxData[0], &temp, 4);
-            temp = W_current * 100.0f;
-            memcpy(&TxData[4], &temp, 4);
-            sendCANBus_flag--;
+            int16_t temp = duty_u * 10000.0f;
+            memcpy(&TxData[0], &temp, 2);
+            temp = cmd_d * 10000.0f;
+            memcpy(&TxData[2], &temp, 2);
+            temp = motor_ElecPosition * 10000.0f;
+            memcpy(&TxData[4], &temp, 2);
+            uint16_t temp2 = motor_PhysPosition;
+            memcpy(&TxData[6], &temp2, 2);
             HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan2, &TxHeader, TxData);
+            sendCANBus_flag--;
             break;
           default:
             break;
@@ -648,7 +677,7 @@ int32_t lookupTbl(const int32_t* source, const int32_t* target, const uint32_t s
 float lookupTblf(const float* source, const float* target, const uint32_t size, const float value){
   uint32_t left = 0;
   uint32_t right = size - 1;
-  uint32_t middle = (left + right) * 0.5f;
+  uint32_t middle = (left + right) >> 1;
   while (right - left > 1) {
     if (source[middle] < value) {
       left = middle;
@@ -659,7 +688,26 @@ float lookupTblf(const float* source, const float* target, const uint32_t size, 
     else {
       return target[middle];
     }
-    middle = (left + right) * 0.5f;
+    middle = (left + right) >> 1;
+  }
+  return (value - source[left]) * (target[right] - target[left]) / (source[right] - source[left]) + target[left];
+}
+
+float flookupTbll(const int32_t* source, const float* target, const uint32_t size, const int32_t value){
+  uint32_t left = 0;
+  uint32_t right = size - 1;
+  uint32_t middle = (left + right) >> 1;
+  while (right - left > 1) {
+    if (source[middle] < value) {
+      left = middle;
+    }
+    else if (source[middle] > value){
+      right = middle;
+    }
+    else {
+      return target[middle];
+    }
+    middle = (left + right) >> 1;
   }
   return (value - source[left]) * (target[right] - target[left]) / (source[right] - source[left]) + target[left];
 }

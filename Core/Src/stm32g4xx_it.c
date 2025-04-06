@@ -62,6 +62,11 @@ volatile float RpmSafetyMult;
 /* External variables --------------------------------------------------------*/
 extern FDCAN_HandleTypeDef hfdcan2;
 /* USER CODE BEGIN EV */
+// extern volatile FDCAN_RxHeaderTypeDef RxHeader;
+// extern volatile uint8_t RxData[8];
+// extern volatile FDCAN_TxHeaderTypeDef TxHeader;
+// extern volatile uint8_t TxData[8];
+
 extern volatile int32_t dt_i;
 
 extern volatile int16_t adc_data[4];
@@ -89,6 +94,7 @@ extern volatile float Kp_Id, Ki_Id;
 extern volatile float I_d_err, I_q_err;
 extern volatile float TargetCurrent;
 extern volatile float TargetFieldWk;
+extern volatile uint32_t F_sw;
 
 extern volatile const uint8_t SVPWM_PermuataionMatrix[6][3];
 extern volatile uint8_t	SVPWM_sector;
@@ -103,7 +109,9 @@ extern volatile uint8_t sendCANBus_flag;
 extern void writePwm(uint32_t timer, int32_t duty);
 extern int32_t lookupTbl(const int32_t* source, const int32_t* target, const uint32_t size, const int32_t value);
 extern float lookupTblf(const float* source, const float* target, const uint32_t size, const float value);
+extern float flookupTbll(const int32_t* source, const float* target, const uint32_t size, const int32_t value);
 extern const float sin_LookupX[];
+extern const int32_t sin_LookupXl[];
 extern const float sin_LookupY[];
 extern const float cos_LookupY[];
 extern const uint16_t math_LookupSize;
@@ -344,10 +352,20 @@ void HRTIM1_TIMB_IRQHandler(void)
   V_current = (adc_data[1] - adc_os[1]) * 0.075f;
   W_current = (adc_data[2] - adc_os[2]) * 0.075f;
   // FOC
-  motor_ElecPosition = fmodf(((float)(motor_PhysPosition + Encoder_os) + (TIM2->CNT - motor_lastMeasTime)*motor_speed)
-    * (float)N_POLES / (float)N_STEP_ENCODER, 1.0f);
-  sin_elec_position = lookupTblf(sin_LookupX, sin_LookupY, math_LookupSize, motor_ElecPosition);
-  cos_elec_position = lookupTblf(sin_LookupX, cos_LookupY, math_LookupSize, motor_ElecPosition);
+  // motor_ElecPosition = fmodf(((float)(motor_PhysPosition + Encoder_os) + (TIM2->CNT - motor_lastMeasTime + (13 << F_sw))*motor_speed)
+  //   * (float)N_POLES / (float)N_STEP_ENCODER, 1.0f);
+  int32_t temp = motor_PhysPosition + Encoder_os;
+  if (fabsf(motor_speed) > 300.0f/60.0f*1e-6f*N_STEP_ENCODER * 0.02){
+    temp += (TIM2->CNT - motor_lastMeasTime + (13 << F_sw))*motor_speed;
+  }
+  temp *= N_POLES;
+  temp %= N_STEP_ENCODER;
+  motor_ElecPosition = (float)temp / N_STEP_ENCODER;
+  // motor_ElecPosition = 0.0f;
+  // sin_elec_position = lookupTblf(sin_LookupX, sin_LookupY, math_LookupSize, motor_ElecPosition);
+  // cos_elec_position = lookupTblf(sin_LookupX, cos_LookupY, math_LookupSize, motor_ElecPosition);
+  sin_elec_position = flookupTbll(sin_LookupXl, sin_LookupY, math_LookupSize, temp);
+  cos_elec_position = flookupTbll(sin_LookupXl, cos_LookupY, math_LookupSize, temp);
   // sin_elec_position = sinf(motor_ElecPosition * PIx2);
   // cos_elec_position = cosf(motor_ElecPosition * PIx2);
   // Clarke transform
@@ -363,11 +381,11 @@ void HRTIM1_TIMB_IRQHandler(void)
     (MAX_SPEED - fabsf(motor_speed)) / MAX_SPEED * 10.0f : 1.0f;
   I_d_err = TargetFieldWk * RpmSafetyMult - I_d;
   I_q_err = TargetCurrent * RpmSafetyMult - I_q;
-  integ_d += I_d_err * Ki_Id * 25e-6f;
+  integ_d += I_d_err * Ki_Id * 25e-6f * ((float)(1U << F_sw));
   integ_d = (integ_d > MAX_CMD_D) ? MAX_CMD_D : integ_d;
   integ_d = (integ_d < MIN_CMD_D) ? MIN_CMD_D : integ_d;
   cmd_d = I_d_err * Kp_Id + integ_d;
-  integ_q += I_q_err * Ki_Iq * 25e-6f;
+  integ_q += I_q_err * Ki_Iq * 25e-6f * ((float)(1U << F_sw));
   integ_q = (integ_q > MAX_CMD_Q) ? MAX_CMD_Q : integ_q;
   integ_q = (integ_q < MIN_CMD_Q) ? MIN_CMD_Q : integ_q;
   cmd_q = I_q_err * Kp_Iq + integ_q;
@@ -399,6 +417,7 @@ void HRTIM1_TIMB_IRQHandler(void)
   // writePwm(U_TIMER, duty_u * 64000.0f);
   // writePwm(V_TIMER, duty_v * 64000.0f);
   // writePwm(W_TIMER, duty_w * 64000.0f);
+  if (sendCANBus_flag == 0) sendCANBus_flag = 1;
   LL_GPIO_ResetOutputPin(GPIOC, LL_GPIO_PIN_0);
   /* USER CODE END HRTIM1_TIMB_IRQn 0 */
 
