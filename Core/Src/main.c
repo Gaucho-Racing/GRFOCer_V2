@@ -55,12 +55,12 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-volatile int16_t adc_data[4];
+volatile int16_t adc_data[64];
 
 FDCAN_RxHeaderTypeDef RxHeader;
-uint8_t RxData[8];
+uint8_t RxData[64];
 FDCAN_TxHeaderTypeDef TxHeader;
-uint8_t TxData[8];
+uint8_t TxData[64];
 
 char printBuffer[1024];
 
@@ -147,17 +147,20 @@ const float cos_LookupY[] = {
 const uint16_t math_LookupSize = 100;
 
 // Motor variables
+volatile int32_t temp_it, temp_itPrev, temp_itPrev2;
 volatile bool SPI_Wait = false;
 volatile uint8_t SPI_WaitState = 0;
 volatile uint32_t SPI_buf = 0U;
 volatile int32_t motor_PhysPosition;
 int32_t motor_lastPhysPosition;
-volatile uint32_t motor_lastMeasTime;
+volatile uint32_t motor_lastMeasTime, motor_lastMeasTime2;
 uint32_t motor_last2MeasTime;
 volatile float motor_ElecPosition;
 volatile float U_current, V_current, W_current;
 volatile float motor_speed = 0.0f; // encoder LSBs / us
+volatile float RpmSafetyMult;
 int32_t KTY_Temperature;
+volatile uint8_t glitchCount = 0;
 #ifdef USE_EMRAX_MOTOR
 volatile int32_t Encoder_os = 449; // encoder offset angle
 const int32_t KTY_LookupR[] = {980,1030,1135,1247,1367,1495,1630,1772,1922,2000,2080,2245,2417,2597,2785,2980,3182,3392,3607,3817,3915,4008,4166,4280};
@@ -165,7 +168,7 @@ const int32_t KTY_LookupT[] = {-55,-50,-40,-30,-20,-10,0,10,20,25,30,40,50,60,70
 const uint16_t KTY_LookupSize = 24;
 #endif
 #ifdef USE_AMK_MOTOR
-volatile const int32_t Encoder_os = 4450;
+static const int32_t Encoder_os = 4450;
 const int32_t KTY_LookupR[] = {359,391,424,460,498,538,581,603,626,672,722,773,826,882,940,1000,1062,1127,1194,1262,1334,1407,1482,1560,1640,1722,1807,1893,1982,2073,2166,2261,2357,2452,2542,2624};
 const int32_t KTY_LookupT[] = {-40,-30,-20,-10,0,10,20,25,30,40,50,60,70,80,90,100,110,120,130,140,150,160,170,180,190,200,210,220,230,240,250,260,270,280,290,300};
 const uint16_t KTY_LookupSize = 36;
@@ -229,6 +232,8 @@ void printCANBus(char* text);
 void resetGateDriver();
 void disableGateDriver();
 void writePwm(uint32_t timer, int32_t duty);
+
+void FOC();
 
 int32_t lookupTbl(const int32_t* source, const int32_t* target, const uint32_t size, const int32_t value);
 float lookupTblf(const float* source, const float* target, const uint32_t size, const float value);
@@ -306,7 +311,7 @@ int main(void)
   LL_ADC_Enable(ADC1);
   while (!LL_ADC_IsActiveFlag_ADRDY(ADC1));
   LL_DMA_SetPeriphAddress(DMA1, LL_DMA_CHANNEL_1, (uint32_t)&ADC1->DR);
-  LL_DMA_SetMemoryAddress(DMA1, LL_DMA_CHANNEL_1, (uint32_t)adc_data);
+  LL_DMA_SetMemoryAddress(DMA1, LL_DMA_CHANNEL_1, (uint32_t)&adc_data[0]);
   LL_DMA_SetDataLength(DMA1, LL_DMA_CHANNEL_1, 3);
   LL_DMA_EnableChannel(DMA1, LL_DMA_CHANNEL_1);
   LL_ADC_REG_StartConversion(ADC1);
@@ -359,7 +364,7 @@ int main(void)
   resetGateDriver();
 
   // enable HRTIM timer B interrupt(FOC calculations)
-  LL_HRTIM_EnableIT_REP(HRTIM1, LL_HRTIM_TIMER_B);
+  LL_HRTIM_EnableIT_UPDATE(HRTIM1, LL_HRTIM_TIMER_B);
 
   // measure ADC offset
   for (uint16_t i = 0; i < 100; i++){
@@ -372,6 +377,7 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+  bool isFirstCycle = true;
   while (1)
   {
     micros = TIM2->CNT;
@@ -442,7 +448,10 @@ int main(void)
       SPI_buf = SPI_buf >> 1;
       shiftAmount++;
     }
+    __disable_irq();
     motor_PhysPosition = (SPI_buf >> 4) & (N_STEP_ENCODER-1);
+    motor_lastMeasTime = motor_lastMeasTime2;
+    __enable_irq();
     #endif
 
     // calculate motor speed
@@ -453,13 +462,17 @@ int main(void)
       motor_PhysPositionDiff += N_STEP_ENCODER;
     }
     float motor_speed_new = (float)motor_PhysPositionDiff / (float)(motor_lastMeasTime - motor_last2MeasTime);
-    // if (fabsf(motor_speed_new - motor_speed) > Kt * fabsf(I_q_avg) / J / PIx2 * N_STEP_ENCODER){
-    //   motor_PhysPosition = motor_lastPhysPosition + motor_speed*(motor_lastMeasTime - motor_last2MeasTime);
-    // }
-    // else{
-    //   motor_speed += (motor_speed_new - motor_speed) * 0.1f;
-    // }
+    __disable_irq();
     motor_speed += (motor_speed_new - motor_speed) * 0.03f;
+    __enable_irq();
+    if (isFirstCycle) {
+      isFirstCycle = false;
+      temp_it = motor_PhysPosition + Encoder_os;
+      temp_it *= N_POLES;
+      temp_it %= N_STEP_ENCODER;
+      temp_itPrev = temp_it;
+      temp_itPrev2 = temp_it;
+    }
 
     if (sendCANBus_flag != 0){
       if (HAL_FDCAN_GetTxFifoFreeLevel(&hfdcan2) != 0){
@@ -469,11 +482,6 @@ int main(void)
             TxHeader.DataLength = FDCAN_DLC_BYTES_6;
             int16_t AC_current = I_q * 100.0f;
             int16_t DC_current = I_d * 100.0f; // TODO: find right formula
-            // if (AC_current < 100 && TargetCurrent == 0.0f) {
-            //   adc_os[0] = adc_data[0];
-            //   adc_os[1] = adc_data[1];
-            //   adc_os[2] = adc_data[2];
-            // }
             int16_t motor_speed_scaled = motor_speed * 60e6f / N_STEP_ENCODER;
             memcpy(&TxData[0], &AC_current, 2);
             memcpy(&TxData[2], &DC_current, 2);
@@ -501,9 +509,9 @@ int main(void)
           case 1:
             TxHeader.Identifier = CAN_DEBUG_ID;
             TxHeader.DataLength = FDCAN_DLC_BYTES_8;
-            int16_t temp = duty_u * 10000.0f;
+            int16_t temp = Encoder_os;
             memcpy(&TxData[0], &temp, 2);
-            temp = cmd_d * 10000.0f;
+            temp = temp_it;
             memcpy(&TxData[2], &temp, 2);
             temp = motor_ElecPosition * 10000.0f;
             memcpy(&TxData[4], &temp, 2);
@@ -628,14 +636,16 @@ void printCANBus(char* text) {
 
 void writePwm(uint32_t timer, int32_t duty) {
   duty = 64000 - duty;
+  // duty = (duty > 62000) ? 62000 : duty;
+  // duty = (duty < 2000) ? 2000 : duty;
   uint32_t duty_H, duty_L;
   if (duty <= deadTime) {
     duty_H = 0;
     duty_L = 0;
   }
   else if (duty >= 64000 - deadTime) {
-    duty_H = 64001;
-    duty_L = 64001;
+    duty_H = 64000;
+    duty_L = 64000;
   }
   else {
     if (duty <= deadTime << 1) {
@@ -644,15 +654,128 @@ void writePwm(uint32_t timer, int32_t duty) {
     }
     else if (duty >= 64000 - (deadTime << 1)) {
       duty_H = duty - deadTime;
-      duty_L = 64001;
+      duty_L = 64000;
     }
     else {
       duty_H = duty - deadTime;
       duty_L = duty + deadTime;
     }
   }
+  duty_H = (duty_H > 63900) ? 63900 : duty_H;
+  duty_L = (duty_L > 63900) ? 63900 : duty_L;
   LL_HRTIM_TIM_SetCompare1(HRTIM1, timer, duty_H);
   LL_HRTIM_TIM_SetCompare3(HRTIM1, timer, duty_L);
+}
+
+void FOC() {
+  // convert ADC values to phase current
+  U_current = (adc_data[0] - adc_os[0]) * 0.075f;
+  V_current = (adc_data[1] - adc_os[1]) * 0.075f;
+  W_current = (adc_data[2] - adc_os[2]) * 0.075f;
+  // FOC
+  // motor_ElecPosition = fmodf(((float)(motor_PhysPosition + Encoder_os) + (TIM2->CNT - motor_lastMeasTime + (13 << F_sw))*motor_speed)
+  //   * (float)N_POLES / (float)N_STEP_ENCODER, 1.0f);
+  temp_it = motor_PhysPosition + Encoder_os;
+  if (fabsf(motor_speed) > ((300.0f/60.0f)*1e-6f*N_STEP_ENCODER * 0.02f)){
+    temp_it += (TIM2->CNT - motor_lastMeasTime + (13 << F_sw))*motor_speed;
+  }
+  temp_it *= N_POLES;
+  temp_it &= 0xFFFF;
+  uint16_t uhhh = temp_it;
+  // if (abs(((temp_it - temp_itPrev)&0xFFFF) - ((temp_itPrev - temp_itPrev2)&0xFFFF)) > 10000){
+  //   glitchCount++;
+  //   temp_it = (temp_itPrev + (temp_itPrev - temp_itPrev2)) & 0xFFFF;
+  // }
+  // else {
+  //   glitchCount = 0;
+  // }
+  // if (glitchCount > 1) {
+  //   glitchCount = 0;
+  //   temp_it = uhhh;
+  // }
+  temp_itPrev2 = temp_itPrev;
+  temp_itPrev = temp_it;
+  // uint16_t temp3 = temp_it;
+  // memcpy(&TxDataIT[2], &temp3, 2);
+  motor_ElecPosition = (float)temp_it / (float)N_STEP_ENCODER;
+  // motor_ElecPosition = 0.0f;
+  // sin_elec_position = lookupTblf(sin_LookupX, sin_LookupY, math_LookupSize, motor_ElecPosition);
+  // cos_elec_position = lookupTblf(sin_LookupX, cos_LookupY, math_LookupSize, motor_ElecPosition);
+  sin_elec_position = flookupTbll(sin_LookupXl, sin_LookupY, math_LookupSize, uhhh);
+  cos_elec_position = flookupTbll(sin_LookupXl, cos_LookupY, math_LookupSize, uhhh);
+  // sin_elec_position = sinf(motor_ElecPosition * PIx2);
+  // cos_elec_position = cosf(motor_ElecPosition * PIx2);
+  // Clarke transform
+  I_a = U_current * 0.66666667f - V_current * 0.33333333f - W_current * 0.33333333f;
+  I_b = sqrt3_1o * (V_current - W_current);
+  // Park transform
+  I_d = I_a * cos_elec_position + I_b * sin_elec_position;
+  I_q = I_b * cos_elec_position - I_a * sin_elec_position;
+  I_d_avg += (I_d - I_d_avg) * 0.001f;
+  I_q_avg += (I_q - I_q_avg) * 0.001f;
+  // PI controllers on Q and D
+  RpmSafetyMult = (fabsf(motor_speed) > MAX_SPEED * 0.9) ? 
+    (MAX_SPEED - fabsf(motor_speed)) / MAX_SPEED * 10.0f : 1.0f;
+  I_d_err = TargetFieldWk * RpmSafetyMult - I_d;
+  I_q_err = TargetCurrent * RpmSafetyMult - I_q;
+  integ_d += I_d_err * Ki_Id * 25e-6f * ((float)(1U << F_sw));
+  integ_d = (integ_d > MAX_CMD_D) ? MAX_CMD_D : integ_d;
+  integ_d = (integ_d < MIN_CMD_D) ? MIN_CMD_D : integ_d;
+  cmd_d = I_d_err * Kp_Id + integ_d;
+  integ_q += I_q_err * Ki_Iq * 25e-6f * ((float)(1U << F_sw));
+  integ_q = (integ_q > MAX_CMD_Q) ? MAX_CMD_Q : integ_q;
+  integ_q = (integ_q < MIN_CMD_Q) ? MIN_CMD_Q : integ_q;
+  cmd_q = I_q_err * Kp_Iq + integ_q;
+  // Inverse Park transform
+  cmd_a = cmd_d * cos_elec_position - cmd_q * sin_elec_position;
+  cmd_b = cmd_q * cos_elec_position + cmd_d * sin_elec_position;
+  // Inverse Clarke transform
+  duty_u = cmd_a;
+  duty_v = (cmd_a * -0.5f + 0.8660254037844386f * cmd_b);
+  duty_w = (cmd_a * -0.5f - 0.8660254037844386f * cmd_b);
+  writePwm(U_TIMER, duty_u * -32000.0f + 32000);
+  writePwm(V_TIMER, duty_v * -32000.0f + 32000);
+  writePwm(W_TIMER, duty_w * -32000.0f + 32000);
+  // SVPWM generation
+  // SVPWM_mag = hypotf(cmd_b, cmd_a);
+  // SVPWM_ang = atan2f(cmd_b, cmd_a);
+  // SVPWM_ang += PI;
+  // SVPWM_sector = (uint8_t)(SVPWM_ang * PI_3o);
+  // SVPWM_beta = SVPWM_ang - PIo3 * SVPWM_sector;
+  // SVPWM_Tb1 = SVPWM_mag * sinf(PIo3 - SVPWM_beta);
+  // SVPWM_Tb2 = SVPWM_mag * sinf(SVPWM_beta);
+  // SVPWM_Ti[0] = (1.0f - SVPWM_Tb1 - SVPWM_Tb2) * 0.5f;
+  // SVPWM_Ti[1] = SVPWM_Tb1 + SVPWM_Tb2 + SVPWM_Ti[0];
+  // SVPWM_Ti[2] = SVPWM_Tb2 + SVPWM_Ti[0];
+  // SVPWM_Ti[3] = SVPWM_Tb1 + SVPWM_Ti[0];
+  // duty_u = SVPWM_Ti[SVPWM_PermuataionMatrix[SVPWM_sector][0]];
+  // duty_v = SVPWM_Ti[SVPWM_PermuataionMatrix[SVPWM_sector][1]];
+  // duty_w = SVPWM_Ti[SVPWM_PermuataionMatrix[SVPWM_sector][2]];
+  // writePwm(U_TIMER, duty_u * 64000.0f);
+  // writePwm(V_TIMER, duty_v * 64000.0f);
+  // writePwm(W_TIMER, duty_w * 64000.0f);
+  // if (sendCANBus_flag == 0) sendCANBus_flag = 1;
+  
+  // TxHeaderIT.BitRateSwitch = FDCAN_BRS_OFF;
+  // TxHeaderIT.DataLength = FDCAN_DLC_BYTES_8;
+  // TxHeaderIT.ErrorStateIndicator = FDCAN_ESI_ACTIVE;
+  // TxHeaderIT.FDFormat = FDCAN_CLASSIC_CAN;
+  // TxHeaderIT.Identifier = CAN_DEBUG_ID;
+  // TxHeaderIT.IdType = FDCAN_EXTENDED_ID;
+  // TxHeaderIT.MessageMarker = 0;
+  // TxHeaderIT.TxEventFifoControl = FDCAN_NO_TX_EVENTS;
+  // TxHeaderIT.TxFrameType = FDCAN_DATA_FRAME;
+  // uint32_t testtest = 0x0UL;
+  // TxDataIT[0] = (uint8_t)0x00;
+  // TxDataIT[1] = (uint8_t)0x00;
+  // TxDataIT[2] = (uint8_t)0x00;
+  // TxDataIT[3] = (uint8_t)0x00;
+  // // memcpy(&TxDataIT[0], &testtest, 4);
+  // uint16_t temp = motor_ElecPosition * 10000.0f;
+  // memcpy(&TxDataIT[4], &temp, 2);
+  // uint16_t temp2 = motor_PhysPosition;
+  // memcpy(&TxDataIT[6], &temp2, 2);
+  // HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan2, &TxHeaderIT, TxDataIT);
 }
 
 int32_t lookupTbl(const int32_t* source, const int32_t* target, const uint32_t size, const int32_t value) {

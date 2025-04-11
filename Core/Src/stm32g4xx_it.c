@@ -25,6 +25,7 @@
 #include <math.h>
 #include <stdbool.h>
 #include <stdlib.h>
+#include <string.h>
 #include "defines.h"
 /* USER CODE END Includes */
 
@@ -46,7 +47,9 @@
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN PV */
 volatile uint32_t x = 0;
-volatile float RpmSafetyMult;
+
+FDCAN_TxHeaderTypeDef TxHeaderIT;
+uint8_t TxDataIT[8];
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -68,7 +71,7 @@ extern FDCAN_HandleTypeDef hfdcan2;
 // extern volatile uint8_t TxData[8];
 
 extern volatile int32_t dt_i;
-
+extern volatile int32_t temp_it, temp_itPrev, temp_itPrev2;
 extern volatile int16_t adc_data[4];
 extern volatile int16_t adc_os[3];
 
@@ -79,7 +82,7 @@ extern volatile uint32_t SPI_buf;
 extern volatile float motor_ElecPosition;
 extern volatile int32_t motor_PhysPosition;
 extern volatile int32_t Encoder_os;
-extern volatile uint32_t motor_lastMeasTime;
+extern volatile uint32_t motor_lastMeasTime, motor_lastMeasTime2; // 2 is for saving data temporarity before moving it to 1
 extern volatile float motor_speed;
 extern volatile float U_current, V_current, W_current;
 extern volatile float I_q_avg, I_d_avg;
@@ -106,6 +109,7 @@ extern volatile float duty_u, duty_v, duty_w;
 
 extern volatile uint8_t sendCANBus_flag;
 
+extern void FOC();
 extern void writePwm(uint32_t timer, int32_t duty);
 extern int32_t lookupTbl(const int32_t* source, const int32_t* target, const uint32_t size, const int32_t value);
 extern float lookupTblf(const float* source, const float* target, const uint32_t size, const float value);
@@ -294,7 +298,7 @@ void SPI1_IRQHandler(void)
   switch (SPI_WaitState)
   {
   case 0: // prepare to recieve 32 bits
-    motor_lastMeasTime = TIM2->CNT - 4;
+    motor_lastMeasTime2 = TIM2->CNT - 4;
     ENDAT_DIR_Read;
     LL_SPI_Disable(SPI1);
     LL_SPI_SetDataWidth(SPI1, LL_SPI_DATAWIDTH_16BIT);
@@ -345,79 +349,11 @@ void TIM7_DAC_IRQHandler(void)
 void HRTIM1_TIMB_IRQHandler(void)
 {
   /* USER CODE BEGIN HRTIM1_TIMB_IRQn 0 */
-  LL_HRTIM_ClearFlag_REP(HRTIM1, LL_HRTIM_TIMER_B);
+  LL_HRTIM_ClearFlag_UPDATE(HRTIM1, LL_HRTIM_TIMER_B);
   LL_GPIO_SetOutputPin(GPIOC, LL_GPIO_PIN_0);
-  // convert ADC values to phase current
-  U_current = (adc_data[0] - adc_os[0]) * 0.075f;
-  V_current = (adc_data[1] - adc_os[1]) * 0.075f;
-  W_current = (adc_data[2] - adc_os[2]) * 0.075f;
-  // FOC
-  // motor_ElecPosition = fmodf(((float)(motor_PhysPosition + Encoder_os) + (TIM2->CNT - motor_lastMeasTime + (13 << F_sw))*motor_speed)
-  //   * (float)N_POLES / (float)N_STEP_ENCODER, 1.0f);
-  int32_t temp = motor_PhysPosition + Encoder_os;
-  if (fabsf(motor_speed) > 300.0f/60.0f*1e-6f*N_STEP_ENCODER * 0.02){
-    temp += (TIM2->CNT - motor_lastMeasTime + (13 << F_sw))*motor_speed;
-  }
-  temp *= N_POLES;
-  temp %= N_STEP_ENCODER;
-  motor_ElecPosition = (float)temp / N_STEP_ENCODER;
-  // motor_ElecPosition = 0.0f;
-  // sin_elec_position = lookupTblf(sin_LookupX, sin_LookupY, math_LookupSize, motor_ElecPosition);
-  // cos_elec_position = lookupTblf(sin_LookupX, cos_LookupY, math_LookupSize, motor_ElecPosition);
-  sin_elec_position = flookupTbll(sin_LookupXl, sin_LookupY, math_LookupSize, temp);
-  cos_elec_position = flookupTbll(sin_LookupXl, cos_LookupY, math_LookupSize, temp);
-  // sin_elec_position = sinf(motor_ElecPosition * PIx2);
-  // cos_elec_position = cosf(motor_ElecPosition * PIx2);
-  // Clarke transform
-  I_a = U_current * 0.66666667f - V_current * 0.33333333f - W_current * 0.33333333f;
-  I_b = sqrt3_1o * (V_current - W_current);
-  // Park transform
-  I_d = I_a * cos_elec_position + I_b * sin_elec_position;
-  I_q = I_b * cos_elec_position - I_a * sin_elec_position;
-  I_d_avg += (I_d - I_d_avg) * 0.001f;
-  I_q_avg += (I_q - I_q_avg) * 0.001f;
-  // PI controllers on Q and D
-  RpmSafetyMult = (fabsf(motor_speed) > MAX_SPEED * 0.9) ? 
-    (MAX_SPEED - fabsf(motor_speed)) / MAX_SPEED * 10.0f : 1.0f;
-  I_d_err = TargetFieldWk * RpmSafetyMult - I_d;
-  I_q_err = TargetCurrent * RpmSafetyMult - I_q;
-  integ_d += I_d_err * Ki_Id * 25e-6f * ((float)(1U << F_sw));
-  integ_d = (integ_d > MAX_CMD_D) ? MAX_CMD_D : integ_d;
-  integ_d = (integ_d < MIN_CMD_D) ? MIN_CMD_D : integ_d;
-  cmd_d = I_d_err * Kp_Id + integ_d;
-  integ_q += I_q_err * Ki_Iq * 25e-6f * ((float)(1U << F_sw));
-  integ_q = (integ_q > MAX_CMD_Q) ? MAX_CMD_Q : integ_q;
-  integ_q = (integ_q < MIN_CMD_Q) ? MIN_CMD_Q : integ_q;
-  cmd_q = I_q_err * Kp_Iq + integ_q;
-  // Inverse Park transform
-  cmd_a = cmd_d * cos_elec_position - cmd_q * sin_elec_position;
-  cmd_b = cmd_q * cos_elec_position + cmd_d * sin_elec_position;
-  // Inverse Clarke transform
-  duty_u = cmd_a;
-  duty_v = (cmd_a * -0.5f + 0.8660254037844386f * cmd_b);
-  duty_w = (cmd_a * -0.5f - 0.8660254037844386f * cmd_b);
-  writePwm(U_TIMER, duty_u * -32000.0f + 32000);
-  writePwm(V_TIMER, duty_v * -32000.0f + 32000);
-  writePwm(W_TIMER, duty_w * -32000.0f + 32000);
-  // SVPWM generation
-  // SVPWM_mag = hypotf(cmd_b, cmd_a);
-  // SVPWM_ang = atan2f(cmd_b, cmd_a);
-  // SVPWM_ang += PI;
-  // SVPWM_sector = (uint8_t)(SVPWM_ang * PI_3o);
-  // SVPWM_beta = SVPWM_ang - PIo3 * SVPWM_sector;
-  // SVPWM_Tb1 = SVPWM_mag * sinf(PIo3 - SVPWM_beta);
-  // SVPWM_Tb2 = SVPWM_mag * sinf(SVPWM_beta);
-  // SVPWM_Ti[0] = (1.0f - SVPWM_Tb1 - SVPWM_Tb2) * 0.5f;
-  // SVPWM_Ti[1] = SVPWM_Tb1 + SVPWM_Tb2 + SVPWM_Ti[0];
-  // SVPWM_Ti[2] = SVPWM_Tb2 + SVPWM_Ti[0];
-  // SVPWM_Ti[3] = SVPWM_Tb1 + SVPWM_Ti[0];
-  // duty_u = SVPWM_Ti[SVPWM_PermuataionMatrix[SVPWM_sector][0]];
-  // duty_v = SVPWM_Ti[SVPWM_PermuataionMatrix[SVPWM_sector][1]];
-  // duty_w = SVPWM_Ti[SVPWM_PermuataionMatrix[SVPWM_sector][2]];
-  // writePwm(U_TIMER, duty_u * 64000.0f);
-  // writePwm(V_TIMER, duty_v * 64000.0f);
-  // writePwm(W_TIMER, duty_w * 64000.0f);
-  if (sendCANBus_flag == 0) sendCANBus_flag = 1;
+  
+  FOC();
+
   LL_GPIO_ResetOutputPin(GPIOC, LL_GPIO_PIN_0);
   /* USER CODE END HRTIM1_TIMB_IRQn 0 */
 

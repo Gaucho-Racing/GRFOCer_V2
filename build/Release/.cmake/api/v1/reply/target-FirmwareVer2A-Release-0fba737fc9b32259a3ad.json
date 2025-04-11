@@ -70,15 +70,11 @@
 			"compileCommandFragments" : 
 			[
 				{
-					"fragment" : " -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard  -Wall -Wextra -Wpedantic -fdata-sections -ffunction-sections -O0 -g3 -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard  -Wall -Wextra -Wpedantic -fdata-sections -ffunction-sections -O0 -g3 -u _printf_float -g -std=gnu11"
+					"fragment" : " -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard  -Wall -Wextra -Wpedantic -fdata-sections -ffunction-sections -O1 -g0 -fno-fast-math -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard  -Wall -Wextra -Wpedantic -fdata-sections -ffunction-sections -O1 -g0 -fno-fast-math -u _printf_float -O3 -DNDEBUG -std=gnu11"
 				}
 			],
 			"defines" : 
 			[
-				{
-					"backtrace" : 3,
-					"define" : "DEBUG"
-				},
 				{
 					"backtrace" : 3,
 					"define" : "STM32G474xx"
@@ -182,15 +178,11 @@
 			"compileCommandFragments" : 
 			[
 				{
-					"fragment" : " -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard  -Wall -Wextra -Wpedantic -fdata-sections -ffunction-sections -O0 -g3 -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard  -Wall -Wextra -Wpedantic -fdata-sections -ffunction-sections -O0 -g3 -x assembler-with-cpp -MMD -MP -g"
+					"fragment" : " -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard  -Wall -Wextra -Wpedantic -fdata-sections -ffunction-sections -O1 -g0 -fno-fast-math -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard  -Wall -Wextra -Wpedantic -fdata-sections -ffunction-sections -O1 -g0 -fno-fast-math -x assembler-with-cpp -MMD -MP -O3 -DNDEBUG"
 				}
 			],
 			"defines" : 
 			[
-				{
-					"backtrace" : 3,
-					"define" : "DEBUG"
-				},
 				{
 					"backtrace" : 3,
 					"define" : "STM32G474xx"
@@ -259,7 +251,7 @@
 		"commandFragments" : 
 		[
 			{
-				"fragment" : "-mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard  -Wall -Wextra -Wpedantic -fdata-sections -ffunction-sections -O0 -g3 -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard  -Wall -Wextra -Wpedantic -fdata-sections -ffunction-sections -O0 -g3 -u _printf_float -g",
+				"fragment" : "-mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard  -Wall -Wextra -Wpedantic -fdata-sections -ffunction-sections -O1 -g0 -fno-fast-math -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard  -Wall -Wextra -Wpedantic -fdata-sections -ffunction-sections -O1 -g0 -fno-fast-math -u _printf_float -O3 -DNDEBUG",
 				"role" : "flags"
 			},
 			{

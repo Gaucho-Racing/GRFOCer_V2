@@ -11,7 +11,7 @@
 						1,
 						2
 					],
-					"jsonFile" : "directory-.-Release-d0094a50bb2071803777.json",
+					"jsonFile" : "directory-.-Debug-d0094a50bb2071803777.json",
 					"minimumCMakeVersion" : 
 					{
 						"string" : "3.22"
@@ -25,7 +25,7 @@
 				},
 				{
 					"build" : "cmake/stm32cubemx",
-					"jsonFile" : "directory-cmake.stm32cubemx-Release-a874d3cc84b5982fda2e.json",
+					"jsonFile" : "directory-cmake.stm32cubemx-Debug-a874d3cc84b5982fda2e.json",
 					"minimumCMakeVersion" : 
 					{
 						"string" : "3.22"
@@ -36,7 +36,7 @@
 				},
 				{
 					"build" : "Drivers/CMSIS/DSP/Source",
-					"jsonFile" : "directory-Drivers.CMSIS.DSP.Source-Release-bddb7032e215c0ab2590.json",
+					"jsonFile" : "directory-Drivers.CMSIS.DSP.Source-Debug-bddb7032e215c0ab2590.json",
 					"minimumCMakeVersion" : 
 					{
 						"string" : "3.14"
@@ -50,7 +50,7 @@
 					]
 				}
 			],
-			"name" : "Release",
+			"name" : "Debug",
 			"projects" : 
 			[
 				{
@@ -95,14 +95,14 @@
 				{
 					"directoryIndex" : 2,
 					"id" : "CMSISDSP::@b9d5bb0b56e96cb34529",
-					"jsonFile" : "target-CMSISDSP-Release-9043c16bb0151a59bfc6.json",
+					"jsonFile" : "target-CMSISDSP-Debug-d0403655d4a44536e6d2.json",
 					"name" : "CMSISDSP",
 					"projectIndex" : 2
 				},
 				{
 					"directoryIndex" : 0,
 					"id" : "FirmwareVer2A::@6890427a1f51a3e7e1df",
-					"jsonFile" : "target-FirmwareVer2A-Release-500919f2a85220dd0672.json",
+					"jsonFile" : "target-FirmwareVer2A-Debug-123089e5fe549c1ff61e.json",
 					"name" : "FirmwareVer2A",
 					"projectIndex" : 0
 				}
@@ -112,7 +112,7 @@
 	"kind" : "codemodel",
 	"paths" : 
 	{
-		"build" : "C:/SynologyDrive/University/GauchoRacing/GR25/MotorController/FirmwareVer2A/build/Release",
+		"build" : "C:/SynologyDrive/University/GauchoRacing/GR25/MotorController/FirmwareVer2A/build/Debug",
 		"source" : "C:/SynologyDrive/University/GauchoRacing/GR25/MotorController/FirmwareVer2A"
 	},
 	"version" : 
