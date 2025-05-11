@@ -27,6 +27,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "defines.h"
+#include "FOC.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -65,60 +66,14 @@ uint8_t TxDataIT[8];
 /* External variables --------------------------------------------------------*/
 extern FDCAN_HandleTypeDef hfdcan2;
 /* USER CODE BEGIN EV */
-// extern volatile FDCAN_RxHeaderTypeDef RxHeader;
-// extern volatile uint8_t RxData[8];
-// extern volatile FDCAN_TxHeaderTypeDef TxHeader;
-// extern volatile uint8_t TxData[8];
-
-extern volatile int32_t dt_i;
-extern volatile int32_t temp_it, temp_itPrev, temp_itPrev2;
-extern volatile int16_t adc_data[4];
-extern volatile int16_t adc_os[3];
-
 extern volatile bool SPI_Wait;
 extern volatile uint8_t SPI_WaitState;
 extern volatile uint32_t SPI_buf;
+extern volatile uint32_t motor_lastMeasTime2; // 2 is for saving data temporarity before moving it to 1
 
-extern volatile float motor_ElecPosition;
-extern volatile int32_t motor_PhysPosition;
-extern volatile int32_t Encoder_os;
-extern volatile uint32_t motor_lastMeasTime, motor_lastMeasTime2; // 2 is for saving data temporarity before moving it to 1
-extern volatile float motor_speed;
-extern volatile float U_current, V_current, W_current;
-extern volatile float I_q_avg, I_d_avg;
-
-extern volatile float sin_elec_position, cos_elec_position;
-extern volatile float I_a, I_b, I_q, I_d;
-extern volatile float cmd_q, cmd_d;
-extern volatile float cmd_a, cmd_b;
-extern volatile float integ_q, integ_d;
-extern volatile float Kp_Iq, Ki_Iq;
-extern volatile float Kp_Id, Ki_Id;
-extern volatile float I_d_err, I_q_err;
-extern volatile float TargetCurrent;
-extern volatile float TargetFieldWk;
-extern volatile uint32_t F_sw;
-
-extern volatile const uint8_t SVPWM_PermuataionMatrix[6][3];
-extern volatile uint8_t	SVPWM_sector;
-extern volatile float SVPWM_mag, SVPWM_ang;
-extern volatile float SVPWM_Ti[4];
-extern volatile float SVPWM_Tb1, SVPWM_Tb2;
-extern volatile float SVPWM_beta;
-extern volatile float duty_u, duty_v, duty_w;
+extern volatile FOC_data* FOC;
 
 extern volatile uint8_t sendCANBus_flag;
-
-extern void FOC();
-extern void writePwm(uint32_t timer, int32_t duty);
-extern int32_t lookupTbl(const int32_t* source, const int32_t* target, const uint32_t size, const int32_t value);
-extern float lookupTblf(const float* source, const float* target, const uint32_t size, const float value);
-extern float flookupTbll(const int32_t* source, const float* target, const uint32_t size, const int32_t value);
-extern const float sin_LookupX[];
-extern const int32_t sin_LookupXl[];
-extern const float sin_LookupY[];
-extern const float cos_LookupY[];
-extern const uint16_t math_LookupSize;
 /* USER CODE END EV */
 
 /******************************************************************************/
@@ -260,34 +215,6 @@ void SysTick_Handler(void)
 /******************************************************************************/
 
 /**
-  * @brief This function handles DMA1 channel1 global interrupt.
-  */
-void DMA1_Channel1_IRQHandler(void)
-{
-  /* USER CODE BEGIN DMA1_Channel1_IRQn 0 */
-
-  /* USER CODE END DMA1_Channel1_IRQn 0 */
-
-  /* USER CODE BEGIN DMA1_Channel1_IRQn 1 */
-
-  /* USER CODE END DMA1_Channel1_IRQn 1 */
-}
-
-/**
-  * @brief This function handles DMA1 channel2 global interrupt.
-  */
-void DMA1_Channel2_IRQHandler(void)
-{
-  /* USER CODE BEGIN DMA1_Channel2_IRQn 0 */
-
-  /* USER CODE END DMA1_Channel2_IRQn 0 */
-
-  /* USER CODE BEGIN DMA1_Channel2_IRQn 1 */
-
-  /* USER CODE END DMA1_Channel2_IRQn 1 */
-}
-
-/**
   * @brief This function handles SPI1 global interrupt.
   */
 void SPI1_IRQHandler(void)
@@ -350,15 +277,14 @@ void HRTIM1_TIMB_IRQHandler(void)
 {
   /* USER CODE BEGIN HRTIM1_TIMB_IRQn 0 */
   LL_HRTIM_ClearFlag_UPDATE(HRTIM1, LL_HRTIM_TIMER_B);
-  LL_GPIO_SetOutputPin(GPIOC, LL_GPIO_PIN_0);
   
-  FOC();
+  // FOC_update(FOC);
 
-  LL_GPIO_ResetOutputPin(GPIOC, LL_GPIO_PIN_0);
+  
   /* USER CODE END HRTIM1_TIMB_IRQn 0 */
 
   /* USER CODE BEGIN HRTIM1_TIMB_IRQn 1 */
-
+  
   /* USER CODE END HRTIM1_TIMB_IRQn 1 */
 }
 

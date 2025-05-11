@@ -35,6 +35,8 @@
 #include <stdlib.h>
 // #include "arm_math.h"
 #include "defines.h"
+#include "FastMath.h"
+#include "FOC.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -55,8 +57,6 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-volatile int16_t adc_data[64];
-
 FDCAN_RxHeaderTypeDef RxHeader;
 uint8_t RxData[64];
 FDCAN_TxHeaderTypeDef TxHeader;
@@ -64,103 +64,19 @@ uint8_t TxData[64];
 
 char printBuffer[1024];
 
-// Fast math tables
-const float sin_LookupX[] = {
-  0.  , 0.01, 0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09, 0.1 ,
-  0.11, 0.12, 0.13, 0.14, 0.15, 0.16, 0.17, 0.18, 0.19, 0.2 , 0.21,
-  0.22, 0.23, 0.24, 0.25, 0.26, 0.27, 0.28, 0.29, 0.3 , 0.31, 0.32,
-  0.33, 0.34, 0.35, 0.36, 0.37, 0.38, 0.39, 0.4 , 0.41, 0.42, 0.43,
-  0.44, 0.45, 0.46, 0.47, 0.48, 0.49, 0.5 , 0.51, 0.52, 0.53, 0.54,
-  0.55, 0.56, 0.57, 0.58, 0.59, 0.6 , 0.61, 0.62, 0.63, 0.64, 0.65,
-  0.66, 0.67, 0.68, 0.69, 0.7 , 0.71, 0.72, 0.73, 0.74, 0.75, 0.76,
-  0.77, 0.78, 0.79, 0.8 , 0.81, 0.82, 0.83, 0.84, 0.85, 0.86, 0.87,
-  0.88, 0.89, 0.9 , 0.91, 0.92, 0.93, 0.94, 0.95, 0.96, 0.97, 0.98,
-  0.99};
-const int32_t sin_LookupXl[] = {
-      0,   661,  1323,  1985,  2647,  3309,  3971,  4633,  5295,
-   5957,  6619,  7281,  7943,  8605,  9267,  9929, 10591, 11253,
-  11915, 12577, 13239, 13901, 14563, 15225, 15887, 16549, 17211,
-  17873, 18535, 19197, 19859, 20521, 21183, 21845, 22506, 23168,
-  23830, 24492, 25154, 25816, 26478, 27140, 27802, 28464, 29126,
-  29788, 30450, 31112, 31774, 32436, 33098, 33760, 34422, 35084,
-  35746, 36408, 37070, 37732, 38394, 39056, 39718, 40380, 41042,
-  41704, 42366, 43028, 43690, 44351, 45013, 45675, 46337, 46999,
-  47661, 48323, 48985, 49647, 50309, 50971, 51633, 52295, 52957,
-  53619, 54281, 54943, 55605, 56267, 56929, 57591, 58253, 58915,
-  59577, 60239, 60901, 61563, 62225, 62887, 63549, 64211, 64873,
-  65535
-};
-const float sin_LookupY[] = {
-  0.00000000e+00,  6.27905195e-02,  1.25333234e-01,  1.87381315e-01,
-  2.48689887e-01,  3.09016994e-01,  3.68124553e-01,  4.25779292e-01,
-  4.81753674e-01,  5.35826795e-01,  5.87785252e-01,  6.37423990e-01,
-  6.84547106e-01,  7.28968627e-01,  7.70513243e-01,  8.09016994e-01,
-  8.44327926e-01,  8.76306680e-01,  9.04827052e-01,  9.29776486e-01,
-  9.51056516e-01,  9.68583161e-01,  9.82287251e-01,  9.92114701e-01,
-  9.98026728e-01,  1.00000000e+00,  9.98026728e-01,  9.92114701e-01,
-  9.82287251e-01,  9.68583161e-01,  9.51056516e-01,  9.29776486e-01,
-  9.04827052e-01,  8.76306680e-01,  8.44327926e-01,  8.09016994e-01,
-  7.70513243e-01,  7.28968627e-01,  6.84547106e-01,  6.37423990e-01,
-  5.87785252e-01,  5.35826795e-01,  4.81753674e-01,  4.25779292e-01,
-  3.68124553e-01,  3.09016994e-01,  2.48689887e-01,  1.87381315e-01,
-  1.25333234e-01,  6.27905195e-02,  1.22464680e-16, -6.27905195e-02,
-  -1.25333234e-01, -1.87381315e-01, -2.48689887e-01, -3.09016994e-01,
-  -3.68124553e-01, -4.25779292e-01, -4.81753674e-01, -5.35826795e-01,
-  -5.87785252e-01, -6.37423990e-01, -6.84547106e-01, -7.28968627e-01,
-  -7.70513243e-01, -8.09016994e-01, -8.44327926e-01, -8.76306680e-01,
-  -9.04827052e-01, -9.29776486e-01, -9.51056516e-01, -9.68583161e-01,
-  -9.82287251e-01, -9.92114701e-01, -9.98026728e-01, -1.00000000e+00,
-  -9.98026728e-01, -9.92114701e-01, -9.82287251e-01, -9.68583161e-01,
-  -9.51056516e-01, -9.29776486e-01, -9.04827052e-01, -8.76306680e-01,
-  -8.44327926e-01, -8.09016994e-01, -7.70513243e-01, -7.28968627e-01,
-  -6.84547106e-01, -6.37423990e-01, -5.87785252e-01, -5.35826795e-01,
-  -4.81753674e-01, -4.25779292e-01, -3.68124553e-01, -3.09016994e-01,
-  -2.48689887e-01, -1.87381315e-01, -1.25333234e-01, -6.27905195e-02
-};
-const float cos_LookupY[] = {
-  1.00000000e+00,  9.98026728e-01,  9.92114701e-01,  9.82287251e-01,
-  9.68583161e-01,  9.51056516e-01,  9.29776486e-01,  9.04827052e-01,
-  8.76306680e-01,  8.44327926e-01,  8.09016994e-01,  7.70513243e-01,
-  7.28968627e-01,  6.84547106e-01,  6.37423990e-01,  5.87785252e-01,
-  5.35826795e-01,  4.81753674e-01,  4.25779292e-01,  3.68124553e-01,
-  3.09016994e-01,  2.48689887e-01,  1.87381315e-01,  1.25333234e-01,
-  6.27905195e-02,  6.12323400e-17, -6.27905195e-02, -1.25333234e-01,
-  -1.87381315e-01, -2.48689887e-01, -3.09016994e-01, -3.68124553e-01,
-  -4.25779292e-01, -4.81753674e-01, -5.35826795e-01, -5.87785252e-01,
-  -6.37423990e-01, -6.84547106e-01, -7.28968627e-01, -7.70513243e-01,
-  -8.09016994e-01, -8.44327926e-01, -8.76306680e-01, -9.04827052e-01,
-  -9.29776486e-01, -9.51056516e-01, -9.68583161e-01, -9.82287251e-01,
-  -9.92114701e-01, -9.98026728e-01, -1.00000000e+00, -9.98026728e-01,
-  -9.92114701e-01, -9.82287251e-01, -9.68583161e-01, -9.51056516e-01,
-  -9.29776486e-01, -9.04827052e-01, -8.76306680e-01, -8.44327926e-01,
-  -8.09016994e-01, -7.70513243e-01, -7.28968627e-01, -6.84547106e-01,
-  -6.37423990e-01, -5.87785252e-01, -5.35826795e-01, -4.81753674e-01,
-  -4.25779292e-01, -3.68124553e-01, -3.09016994e-01, -2.48689887e-01,
-  -1.87381315e-01, -1.25333234e-01, -6.27905195e-02, -1.83697020e-16,
-  6.27905195e-02,  1.25333234e-01,  1.87381315e-01,  2.48689887e-01,
-  3.09016994e-01,  3.68124553e-01,  4.25779292e-01,  4.81753674e-01,
-  5.35826795e-01,  5.87785252e-01,  6.37423990e-01,  6.84547106e-01,
-  7.28968627e-01,  7.70513243e-01,  8.09016994e-01,  8.44327926e-01,
-  8.76306680e-01,  9.04827052e-01,  9.29776486e-01,  9.51056516e-01,
-  9.68583161e-01,  9.82287251e-01,  9.92114701e-01,  9.98026728e-01
-};
-const uint16_t math_LookupSize = 100;
+// FOC variables
+volatile FOC_data* FOC;
 
 // Motor variables
-volatile int32_t temp_it, temp_itPrev, temp_itPrev2;
 volatile bool SPI_Wait = false;
 volatile uint8_t SPI_WaitState = 0;
 volatile uint32_t SPI_buf = 0U;
-volatile int32_t motor_PhysPosition;
+int32_t motor_PhysPosition;
 int32_t motor_lastPhysPosition;
 volatile uint32_t motor_lastMeasTime, motor_lastMeasTime2;
 uint32_t motor_last2MeasTime;
-volatile float motor_ElecPosition;
-volatile float U_current, V_current, W_current;
 volatile float motor_speed = 0.0f; // encoder LSBs / us
-volatile float RpmSafetyMult;
 int32_t KTY_Temperature;
-volatile uint8_t glitchCount = 0;
 #ifdef USE_EMRAX_MOTOR
 volatile int32_t Encoder_os = 449; // encoder offset angle
 const int32_t KTY_LookupR[] = {980,1030,1135,1247,1367,1495,1630,1772,1922,2000,2080,2245,2417,2597,2785,2980,3182,3392,3607,3817,3915,4008,4166,4280};
@@ -174,44 +90,17 @@ const int32_t KTY_LookupT[] = {-40,-30,-20,-10,0,10,20,25,30,40,50,60,70,80,90,1
 const uint16_t KTY_LookupSize = 36;
 #endif
 
-// FOC variables
-volatile uint32_t F_sw;
-volatile float sin_elec_position, cos_elec_position;
-volatile float I_a, I_b, I_q, I_d;
-volatile float I_q_avg, I_d_avg;
-volatile float cmd_q = 0.0f, cmd_d = 0.0f;
-volatile float cmd_a = 0.0f, cmd_b = 0.0f;
-volatile float integ_q = 0.0f, integ_d = 0.0f;
-volatile float Kp_Iq = 0.0f, Ki_Iq = 1.0f;
-volatile float Kp_Id = 0.0f, Ki_Id = 0.1f;
-volatile float I_d_err, I_q_err;
-volatile float TargetCurrent = 0.0f;
-volatile float TargetFieldWk = 0.0f;
-volatile const uint8_t SVPWM_PermuataionMatrix[6][3] = {
-	{ 1, 2, 0 },
-	{ 3, 1, 0 },
-	{ 0, 1, 2 },
-	{ 0, 3, 1 },
-	{ 2, 0, 1 },
-	{ 1, 0, 3 }
-};
-volatile uint8_t	SVPWM_sector;
-volatile float SVPWM_mag, SVPWM_ang;
-volatile float SVPWM_Ti[4];
-volatile float SVPWM_Tb1, SVPWM_Tb2;
-volatile float SVPWM_beta;
-
 // MOSFET & gate driver variables
 int32_t MOSFET_NTC_LookupR[] = {165, 182, 201, 223, 248, 276, 308, 344, 387, 435, 492, 557, 634, 724, 829, 954, 1101, 1277, 1488, 1741, 2048, 2421, 2877, 3438, 4134, 5000, 6087, 7462, 9213, 11462, 14374};
 int32_t MOSFET_NTC_LookupT[] = {150, 145, 140, 135, 130, 125, 120, 115, 110, 105, 100, 95, 90, 85, 80, 75, 70, 65, 60, 55, 50, 45, 40, 35, 30, 25, 20, 15, 10, 5, 0};
 uint16_t MOSFET_NTC_LookupSize = 31;
 uint8_t driver_RDY = 0; // format: |NA|NA|UH|UL|VH|VL|WH|WL|
 uint8_t driver_OK = 0;  // format: |NA|NA|UH|UL|VH|VL|WH|WL|
-volatile float duty_u, duty_v, duty_w;
 uint8_t U_temp, V_temp, W_temp;
 uint32_t NTC_period, NTC_dutyCycle, NTC_Resistance;
 
 // ADC variables
+volatile int16_t adc_data[64];
 volatile int16_t adc_os[3] = {0, 0, 0};
 
 // timing stuff
@@ -233,11 +122,6 @@ void resetGateDriver();
 void disableGateDriver();
 void writePwm(uint32_t timer, int32_t duty);
 
-void FOC();
-
-int32_t lookupTbl(const int32_t* source, const int32_t* target, const uint32_t size, const int32_t value);
-float lookupTblf(const float* source, const float* target, const uint32_t size, const float value);
-float flookupTbll(const int32_t* source, const float* target, const uint32_t size, const int32_t value);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -286,6 +170,17 @@ int main(void)
   MX_TIM2_Init();
   MX_TIM7_Init();
   /* USER CODE BEGIN 2 */
+  // allocate memory on heap for FOC data
+  FOC = (FOC_data*)malloc(sizeof(FOC_data));
+  if (FOC == NULL) {
+    // Handle memory allocation failure
+    disableGateDriver();
+    while (1);
+  }
+
+  // Disable FPU lazy context save
+  FPU->FPCCR &= ~FPU_FPCCR_LSPEN_Msk;
+
   // Init DWT delay
   CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
   DWT->CYCCNT = 0;  // Reset counter
@@ -349,11 +244,21 @@ int main(void)
   LL_TIM_CC_EnableChannel(TIM5, LL_TIM_CHANNEL_CH1);
   LL_TIM_CC_EnableChannel(TIM5, LL_TIM_CHANNEL_CH2);
 
+  // initialize FOC variables
+  FOC->Encoder_os = Encoder_os;
+  FOC->Kp_Id = 0.0f; FOC->Ki_Id = 1.0f;
+  FOC->Kp_Iq = 0.0f; FOC->Ki_Iq = 10.0f;
+  FOC->integ_d = 0.0f;
+  FOC->integ_q = 0.0f;
+  FOC->motor_speed = 0.0f;
+
   // Enable HRTIM (gate drive signals)
-  F_sw = LL_HRTIM_TIM_GetPrescaler(HRTIM1, LL_HRTIM_TIMER_B);
+  FOC->F_sw = LL_HRTIM_TIM_GetPrescaler(HRTIM1, LL_HRTIM_TIMER_B);
   writePwm(U_TIMER, 0);
   writePwm(V_TIMER, 0);
   writePwm(W_TIMER, 0);
+  LL_HRTIM_TIM_SetCounter(HRTIM1, V_TIMER, deadTime*4);
+  LL_HRTIM_TIM_SetCounter(HRTIM1, W_TIMER, deadTime*8);
   LL_HRTIM_EnableOutput(HRTIM1, 
   LL_HRTIM_OUTPUT_TB1|LL_HRTIM_OUTPUT_TB2|
   LL_HRTIM_OUTPUT_TF1|LL_HRTIM_OUTPUT_TF2|
@@ -377,7 +282,6 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  bool isFirstCycle = true;
   while (1)
   {
     micros = TIM2->CNT;
@@ -448,10 +352,10 @@ int main(void)
       SPI_buf = SPI_buf >> 1;
       shiftAmount++;
     }
-    __disable_irq();
+    // __disable_irq();
     motor_PhysPosition = (SPI_buf >> 4) & (N_STEP_ENCODER-1);
     motor_lastMeasTime = motor_lastMeasTime2;
-    __enable_irq();
+    // __enable_irq();
     #endif
 
     // calculate motor speed
@@ -462,17 +366,16 @@ int main(void)
       motor_PhysPositionDiff += N_STEP_ENCODER;
     }
     float motor_speed_new = (float)motor_PhysPositionDiff / (float)(motor_lastMeasTime - motor_last2MeasTime);
-    __disable_irq();
     motor_speed += (motor_speed_new - motor_speed) * 0.03f;
-    __enable_irq();
-    if (isFirstCycle) {
-      isFirstCycle = false;
-      temp_it = motor_PhysPosition + Encoder_os;
-      temp_it *= N_POLES;
-      temp_it %= N_STEP_ENCODER;
-      temp_itPrev = temp_it;
-      temp_itPrev2 = temp_it;
-    }
+
+    // move encoder info to FOC struct
+    // __disable_irq();
+    FOC->motor_PhysPosition = motor_PhysPosition;
+    FOC->motor_lastMeasTime = motor_lastMeasTime;
+    FOC->motor_speed = motor_speed;
+    // __enable_irq();
+
+    FOC_update(FOC);
 
     if (sendCANBus_flag != 0){
       if (HAL_FDCAN_GetTxFifoFreeLevel(&hfdcan2) != 0){
@@ -480,9 +383,9 @@ int main(void)
           case 2:
             TxHeader.Identifier = CAN_STAT1_ID;
             TxHeader.DataLength = FDCAN_DLC_BYTES_6;
-            int16_t AC_current = I_q * 100.0f;
-            int16_t DC_current = I_d * 100.0f; // TODO: find right formula
-            int16_t motor_speed_scaled = motor_speed * 60e6f / N_STEP_ENCODER;
+            int16_t AC_current = FOC->I_q_avg * 100.0f;
+            int16_t DC_current = FOC->I_d_avg * 100.0f; // TODO: find right formula
+            int16_t motor_speed_scaled = FOC->motor_speed * 60e6f / N_STEP_ENCODER;
             memcpy(&TxData[0], &AC_current, 2);
             memcpy(&TxData[2], &DC_current, 2);
             memcpy(&TxData[4], &motor_speed_scaled, 2);
@@ -509,13 +412,13 @@ int main(void)
           case 1:
             TxHeader.Identifier = CAN_DEBUG_ID;
             TxHeader.DataLength = FDCAN_DLC_BYTES_8;
-            int16_t temp = Encoder_os;
+            int16_t temp = FOC->Encoder_os;
             memcpy(&TxData[0], &temp, 2);
-            temp = temp_it;
+            temp = FOC->temp_it;
             memcpy(&TxData[2], &temp, 2);
-            temp = motor_ElecPosition * 10000.0f;
+            temp = FOC->motor_ElecPosition * 10000.0f;
             memcpy(&TxData[4], &temp, 2);
-            uint16_t temp2 = motor_PhysPosition;
+            uint16_t temp2 = FOC->motor_PhysPosition;
             memcpy(&TxData[6], &temp2, 2);
             HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan2, &TxHeader, TxData);
             sendCANBus_flag--;
@@ -599,6 +502,10 @@ void SystemClock_Config(void)
 void resetGateDriver() {
   LL_GPIO_ResetOutputPin(GPIOC, LL_GPIO_PIN_12);
   DELAY_US(GATE_DRIVER_RESET_US);
+  FOC->TargetCurrent = 0.0f;
+  FOC->TargetFieldWk = 0.0f;
+  FOC->integ_d = 0.0f;
+  FOC->integ_q = 0.0f;
   LL_GPIO_SetOutputPin(GPIOC, LL_GPIO_PIN_12);
 }
 
@@ -667,174 +574,6 @@ void writePwm(uint32_t timer, int32_t duty) {
   LL_HRTIM_TIM_SetCompare3(HRTIM1, timer, duty_L);
 }
 
-void FOC() {
-  // convert ADC values to phase current
-  U_current = (adc_data[0] - adc_os[0]) * 0.075f;
-  V_current = (adc_data[1] - adc_os[1]) * 0.075f;
-  W_current = (adc_data[2] - adc_os[2]) * 0.075f;
-  // FOC
-  // motor_ElecPosition = fmodf(((float)(motor_PhysPosition + Encoder_os) + (TIM2->CNT - motor_lastMeasTime + (13 << F_sw))*motor_speed)
-  //   * (float)N_POLES / (float)N_STEP_ENCODER, 1.0f);
-  temp_it = motor_PhysPosition + Encoder_os;
-  if (fabsf(motor_speed) > ((300.0f/60.0f)*1e-6f*N_STEP_ENCODER * 0.02f)){
-    temp_it += (TIM2->CNT - motor_lastMeasTime + (13 << F_sw))*motor_speed;
-  }
-  temp_it *= N_POLES;
-  temp_it &= 0xFFFF;
-  uint16_t uhhh = temp_it;
-  // if (abs(((temp_it - temp_itPrev)&0xFFFF) - ((temp_itPrev - temp_itPrev2)&0xFFFF)) > 10000){
-  //   glitchCount++;
-  //   temp_it = (temp_itPrev + (temp_itPrev - temp_itPrev2)) & 0xFFFF;
-  // }
-  // else {
-  //   glitchCount = 0;
-  // }
-  // if (glitchCount > 1) {
-  //   glitchCount = 0;
-  //   temp_it = uhhh;
-  // }
-  temp_itPrev2 = temp_itPrev;
-  temp_itPrev = temp_it;
-  // uint16_t temp3 = temp_it;
-  // memcpy(&TxDataIT[2], &temp3, 2);
-  motor_ElecPosition = (float)temp_it / (float)N_STEP_ENCODER;
-  // motor_ElecPosition = 0.0f;
-  // sin_elec_position = lookupTblf(sin_LookupX, sin_LookupY, math_LookupSize, motor_ElecPosition);
-  // cos_elec_position = lookupTblf(sin_LookupX, cos_LookupY, math_LookupSize, motor_ElecPosition);
-  sin_elec_position = flookupTbll(sin_LookupXl, sin_LookupY, math_LookupSize, uhhh);
-  cos_elec_position = flookupTbll(sin_LookupXl, cos_LookupY, math_LookupSize, uhhh);
-  // sin_elec_position = sinf(motor_ElecPosition * PIx2);
-  // cos_elec_position = cosf(motor_ElecPosition * PIx2);
-  // Clarke transform
-  I_a = U_current * 0.66666667f - V_current * 0.33333333f - W_current * 0.33333333f;
-  I_b = sqrt3_1o * (V_current - W_current);
-  // Park transform
-  I_d = I_a * cos_elec_position + I_b * sin_elec_position;
-  I_q = I_b * cos_elec_position - I_a * sin_elec_position;
-  I_d_avg += (I_d - I_d_avg) * 0.001f;
-  I_q_avg += (I_q - I_q_avg) * 0.001f;
-  // PI controllers on Q and D
-  RpmSafetyMult = (fabsf(motor_speed) > MAX_SPEED * 0.9) ? 
-    (MAX_SPEED - fabsf(motor_speed)) / MAX_SPEED * 10.0f : 1.0f;
-  I_d_err = TargetFieldWk * RpmSafetyMult - I_d;
-  I_q_err = TargetCurrent * RpmSafetyMult - I_q;
-  integ_d += I_d_err * Ki_Id * 25e-6f * ((float)(1U << F_sw));
-  integ_d = (integ_d > MAX_CMD_D) ? MAX_CMD_D : integ_d;
-  integ_d = (integ_d < MIN_CMD_D) ? MIN_CMD_D : integ_d;
-  cmd_d = I_d_err * Kp_Id + integ_d;
-  integ_q += I_q_err * Ki_Iq * 25e-6f * ((float)(1U << F_sw));
-  integ_q = (integ_q > MAX_CMD_Q) ? MAX_CMD_Q : integ_q;
-  integ_q = (integ_q < MIN_CMD_Q) ? MIN_CMD_Q : integ_q;
-  cmd_q = I_q_err * Kp_Iq + integ_q;
-  // Inverse Park transform
-  cmd_a = cmd_d * cos_elec_position - cmd_q * sin_elec_position;
-  cmd_b = cmd_q * cos_elec_position + cmd_d * sin_elec_position;
-  // Inverse Clarke transform
-  duty_u = cmd_a;
-  duty_v = (cmd_a * -0.5f + 0.8660254037844386f * cmd_b);
-  duty_w = (cmd_a * -0.5f - 0.8660254037844386f * cmd_b);
-  writePwm(U_TIMER, duty_u * -32000.0f + 32000);
-  writePwm(V_TIMER, duty_v * -32000.0f + 32000);
-  writePwm(W_TIMER, duty_w * -32000.0f + 32000);
-  // SVPWM generation
-  // SVPWM_mag = hypotf(cmd_b, cmd_a);
-  // SVPWM_ang = atan2f(cmd_b, cmd_a);
-  // SVPWM_ang += PI;
-  // SVPWM_sector = (uint8_t)(SVPWM_ang * PI_3o);
-  // SVPWM_beta = SVPWM_ang - PIo3 * SVPWM_sector;
-  // SVPWM_Tb1 = SVPWM_mag * sinf(PIo3 - SVPWM_beta);
-  // SVPWM_Tb2 = SVPWM_mag * sinf(SVPWM_beta);
-  // SVPWM_Ti[0] = (1.0f - SVPWM_Tb1 - SVPWM_Tb2) * 0.5f;
-  // SVPWM_Ti[1] = SVPWM_Tb1 + SVPWM_Tb2 + SVPWM_Ti[0];
-  // SVPWM_Ti[2] = SVPWM_Tb2 + SVPWM_Ti[0];
-  // SVPWM_Ti[3] = SVPWM_Tb1 + SVPWM_Ti[0];
-  // duty_u = SVPWM_Ti[SVPWM_PermuataionMatrix[SVPWM_sector][0]];
-  // duty_v = SVPWM_Ti[SVPWM_PermuataionMatrix[SVPWM_sector][1]];
-  // duty_w = SVPWM_Ti[SVPWM_PermuataionMatrix[SVPWM_sector][2]];
-  // writePwm(U_TIMER, duty_u * 64000.0f);
-  // writePwm(V_TIMER, duty_v * 64000.0f);
-  // writePwm(W_TIMER, duty_w * 64000.0f);
-  // if (sendCANBus_flag == 0) sendCANBus_flag = 1;
-  
-  // TxHeaderIT.BitRateSwitch = FDCAN_BRS_OFF;
-  // TxHeaderIT.DataLength = FDCAN_DLC_BYTES_8;
-  // TxHeaderIT.ErrorStateIndicator = FDCAN_ESI_ACTIVE;
-  // TxHeaderIT.FDFormat = FDCAN_CLASSIC_CAN;
-  // TxHeaderIT.Identifier = CAN_DEBUG_ID;
-  // TxHeaderIT.IdType = FDCAN_EXTENDED_ID;
-  // TxHeaderIT.MessageMarker = 0;
-  // TxHeaderIT.TxEventFifoControl = FDCAN_NO_TX_EVENTS;
-  // TxHeaderIT.TxFrameType = FDCAN_DATA_FRAME;
-  // uint32_t testtest = 0x0UL;
-  // TxDataIT[0] = (uint8_t)0x00;
-  // TxDataIT[1] = (uint8_t)0x00;
-  // TxDataIT[2] = (uint8_t)0x00;
-  // TxDataIT[3] = (uint8_t)0x00;
-  // // memcpy(&TxDataIT[0], &testtest, 4);
-  // uint16_t temp = motor_ElecPosition * 10000.0f;
-  // memcpy(&TxDataIT[4], &temp, 2);
-  // uint16_t temp2 = motor_PhysPosition;
-  // memcpy(&TxDataIT[6], &temp2, 2);
-  // HAL_FDCAN_AddMessageToTxFifoQ(&hfdcan2, &TxHeaderIT, TxDataIT);
-}
-
-int32_t lookupTbl(const int32_t* source, const int32_t* target, const uint32_t size, const int32_t value) {
-  uint32_t left = 0;
-  uint32_t right = size - 1;
-  uint32_t middle = (left + right) >> 1;
-  while (right - left > 1) {
-    if (source[middle] < value) {
-      left = middle;
-    }
-    else if (source[middle] > value){
-      right = middle;
-    }
-    else {
-      return target[middle];
-    }
-    middle = (left + right) >> 1;
-  }
-  return (value - source[left]) * (target[right] - target[left]) / (source[right] - source[left]) + target[left];
-}
-
-float lookupTblf(const float* source, const float* target, const uint32_t size, const float value){
-  uint32_t left = 0;
-  uint32_t right = size - 1;
-  uint32_t middle = (left + right) >> 1;
-  while (right - left > 1) {
-    if (source[middle] < value) {
-      left = middle;
-    }
-    else if (source[middle] > value){
-      right = middle;
-    }
-    else {
-      return target[middle];
-    }
-    middle = (left + right) >> 1;
-  }
-  return (value - source[left]) * (target[right] - target[left]) / (source[right] - source[left]) + target[left];
-}
-
-float flookupTbll(const int32_t* source, const float* target, const uint32_t size, const int32_t value){
-  uint32_t left = 0;
-  uint32_t right = size - 1;
-  uint32_t middle = (left + right) >> 1;
-  while (right - left > 1) {
-    if (source[middle] < value) {
-      left = middle;
-    }
-    else if (source[middle] > value){
-      right = middle;
-    }
-    else {
-      return target[middle];
-    }
-    middle = (left + right) >> 1;
-  }
-  return (value - source[left]) * (target[right] - target[left]) / (source[right] - source[left]) + target[left];
-}
-
 void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
 {
   if((RxFifo0ITs & FDCAN_IT_RX_FIFO0_NEW_MESSAGE) != 0)
@@ -847,8 +586,16 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
     if (RxHeader.Identifier == CAN_CMD_ID) {
       int16_t AC_current_raw;
       memcpy(&AC_current_raw, &RxData[0], 2);
-      TargetCurrent = AC_current_raw * 0.01f;
-      TargetFieldWk = RxData[6] * -0.1f;
+      if (RxData[7] != 1) {
+        disableGateDriver();
+      }
+      else {
+        if ((LL_GPIO_ReadInputPort(GPIOC) & LL_GPIO_PIN_12) == 0) {
+          resetGateDriver();
+        }
+      }
+      FOC->TargetCurrent = AC_current_raw * 0.01f;
+      FOC->TargetFieldWk = RxData[6] * -0.1f;
     }
   }
 }

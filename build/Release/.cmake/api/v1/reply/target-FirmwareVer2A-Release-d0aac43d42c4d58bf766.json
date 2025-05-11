@@ -41,7 +41,7 @@
 			{
 				"command" : 2,
 				"file" : 0,
-				"line" : 74,
+				"line" : 76,
 				"parent" : 0
 			},
 			{
@@ -53,7 +53,7 @@
 			{
 				"command" : 4,
 				"file" : 0,
-				"line" : 62,
+				"line" : 64,
 				"parent" : 0
 			},
 			{
@@ -70,15 +70,11 @@
 			"compileCommandFragments" : 
 			[
 				{
-					"fragment" : " -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard  -Wall -Wextra -Wpedantic -fdata-sections -ffunction-sections -O0 -g3 -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard  -Wall -Wextra -Wpedantic -fdata-sections -ffunction-sections -O0 -g3 -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard  -Wall -Wextra -Wpedantic -fdata-sections -ffunction-sections -O0 -g3 -u _printf_float -g -std=gnu11"
+					"fragment" : " -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard  -Wall -Wextra -Wpedantic -fdata-sections -ffunction-sections -O1 -g0 -fno-fast-math -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard  -Wall -Wextra -Wpedantic -fdata-sections -ffunction-sections -O1 -g0 -fno-fast-math -u _printf_float -O3 -DNDEBUG -std=gnu11"
 				}
 			],
 			"defines" : 
 			[
-				{
-					"backtrace" : 3,
-					"define" : "DEBUG"
-				},
 				{
 					"backtrace" : 3,
 					"define" : "STM32G474xx"
@@ -175,22 +171,20 @@
 				35,
 				36,
 				37,
-				38
+				38,
+				39,
+				40
 			]
 		},
 		{
 			"compileCommandFragments" : 
 			[
 				{
-					"fragment" : " -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard  -Wall -Wextra -Wpedantic -fdata-sections -ffunction-sections -O0 -g3 -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard  -Wall -Wextra -Wpedantic -fdata-sections -ffunction-sections -O0 -g3 -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard  -Wall -Wextra -Wpedantic -fdata-sections -ffunction-sections -O0 -g3 -x assembler-with-cpp -MMD -MP -g"
+					"fragment" : " -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard  -Wall -Wextra -Wpedantic -fdata-sections -ffunction-sections -O1 -g0 -fno-fast-math -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard  -Wall -Wextra -Wpedantic -fdata-sections -ffunction-sections -O1 -g0 -fno-fast-math -x assembler-with-cpp -MMD -MP -O3 -DNDEBUG"
 				}
 			],
 			"defines" : 
 			[
-				{
-					"backtrace" : 3,
-					"define" : "DEBUG"
-				},
 				{
 					"backtrace" : 3,
 					"define" : "STM32G474xx"
@@ -242,7 +236,7 @@
 			"language" : "ASM",
 			"sourceIndexes" : 
 			[
-				39
+				41
 			]
 		}
 	],
@@ -259,7 +253,7 @@
 		"commandFragments" : 
 		[
 			{
-				"fragment" : "-mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard  -Wall -Wextra -Wpedantic -fdata-sections -ffunction-sections -O0 -g3 -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard  -Wall -Wextra -Wpedantic -fdata-sections -ffunction-sections -O0 -g3 -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard  -Wall -Wextra -Wpedantic -fdata-sections -ffunction-sections -O0 -g3 -u _printf_float -g",
+				"fragment" : "-mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard  -Wall -Wextra -Wpedantic -fdata-sections -ffunction-sections -O1 -g0 -fno-fast-math -mcpu=cortex-m4 -mfpu=fpv4-sp-d16 -mfloat-abi=hard  -Wall -Wextra -Wpedantic -fdata-sections -ffunction-sections -O1 -g0 -fno-fast-math -u _printf_float -O3 -DNDEBUG",
 				"role" : "flags"
 			},
 			{
@@ -298,7 +292,7 @@
 			"sourceIndexes" : 
 			[
 				0,
-				39
+				41
 			]
 		},
 		{
@@ -342,7 +336,9 @@
 				35,
 				36,
 				37,
-				38
+				38,
+				39,
+				40
 			]
 		}
 	],
@@ -352,6 +348,18 @@
 			"backtrace" : 6,
 			"path" : "Drivers/CMSIS/DSP",
 			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 6,
+			"compileGroupIndex" : 0,
+			"path" : "Core/Src/FastMath.c",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 6,
+			"compileGroupIndex" : 0,
+			"path" : "Core/Src/FOC.c",
+			"sourceGroupIndex" : 1
 		},
 		{
 			"backtrace" : 3,
