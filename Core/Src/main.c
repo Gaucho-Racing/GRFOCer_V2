@@ -106,7 +106,7 @@ volatile int16_t adc_os[3] = {0, 0, 0};
 // timing stuff
 uint32_t micros = 0, lastMicros = 0;
 float dt_f = 33e-6f; // seconds
-volatile int32_t dt_i = 33; // microseconds
+volatile int32_t dt_i = 50; // microseconds
 
 // CANBus stuff
 volatile uint8_t sendCANBus_flag = 0;
@@ -169,7 +169,10 @@ int main(void)
   MX_TIM15_Init();
   MX_TIM2_Init();
   MX_TIM7_Init();
+  MX_TIM6_Init();
   /* USER CODE BEGIN 2 */
+  disableGateDriver();
+
   // allocate memory on heap for FOC data
   FOC = (FOC_data*)malloc(sizeof(FOC_data));
   if (FOC == NULL) {
@@ -244,32 +247,19 @@ int main(void)
   LL_TIM_CC_EnableChannel(TIM5, LL_TIM_CHANNEL_CH1);
   LL_TIM_CC_EnableChannel(TIM5, LL_TIM_CHANNEL_CH2);
 
+  // Enable TIM6 (Drive-enable timeout interrupt)
+  LL_TIM_EnableCounter(TIM6);
+  LL_TIM_EnableIT_UPDATE(TIM6);
+
   // initialize FOC variables
   FOC->Encoder_os = Encoder_os;
-  FOC->Kp_Id = 0.0f; FOC->Ki_Id = 1.0f;
+  FOC->Kp_Id = 0.0f; FOC->Ki_Id = 10.0f;
   FOC->Kp_Iq = 0.0f; FOC->Ki_Iq = 10.0f;
   FOC->integ_d = 0.0f;
   FOC->integ_q = 0.0f;
   FOC->motor_speed = 0.0f;
-
-  // Enable HRTIM (gate drive signals)
-  FOC->F_sw = LL_HRTIM_TIM_GetPrescaler(HRTIM1, LL_HRTIM_TIMER_B);
-  writePwm(U_TIMER, 0);
-  writePwm(V_TIMER, 0);
-  writePwm(W_TIMER, 0);
-  LL_HRTIM_TIM_SetCounter(HRTIM1, V_TIMER, deadTime*4);
-  LL_HRTIM_TIM_SetCounter(HRTIM1, W_TIMER, deadTime*8);
-  LL_HRTIM_EnableOutput(HRTIM1, 
-  LL_HRTIM_OUTPUT_TB1|LL_HRTIM_OUTPUT_TB2|
-  LL_HRTIM_OUTPUT_TF1|LL_HRTIM_OUTPUT_TF2|
-  LL_HRTIM_OUTPUT_TC1|LL_HRTIM_OUTPUT_TC2);
-  LL_HRTIM_TIM_CounterEnable(HRTIM1, LL_HRTIM_TIMER_MASTER|U_TIMER|V_TIMER|W_TIMER);
-
-  // Gate driver setup
-  resetGateDriver();
-
-  // enable HRTIM timer B interrupt(FOC calculations)
-  LL_HRTIM_EnableIT_UPDATE(HRTIM1, LL_HRTIM_TIMER_B);
+  FOC->TargetCurrent = 0.0f;
+  FOC->TargetFieldWk = 0.0f;
 
   // measure ADC offset
   for (uint16_t i = 0; i < 100; i++){
@@ -278,6 +268,20 @@ int main(void)
     adc_os[1] = (adc_os[1]*3 + adc_data[1]) >> 2;
     adc_os[2] = (adc_os[2]*3 + adc_data[2]) >> 2;
   }
+
+  // Enable HRTIM (gate drive signals)
+  FOC->F_sw = LL_HRTIM_TIM_GetPrescaler(HRTIM1, LL_HRTIM_TIMER_B);
+  writePwm(U_TIMER, 0);
+  writePwm(V_TIMER, 0);
+  writePwm(W_TIMER, 0);
+  LL_HRTIM_EnableOutput(HRTIM1, 
+  LL_HRTIM_OUTPUT_TB1|LL_HRTIM_OUTPUT_TB2|
+  LL_HRTIM_OUTPUT_TF1|LL_HRTIM_OUTPUT_TF2|
+  LL_HRTIM_OUTPUT_TC1|LL_HRTIM_OUTPUT_TC2);
+  LL_HRTIM_TIM_CounterEnable(HRTIM1, LL_HRTIM_TIMER_MASTER|U_TIMER|V_TIMER|W_TIMER);
+
+  // enable HRTIM timer B interrupt(FOC calculations)
+  LL_HRTIM_EnableIT_UPDATE(HRTIM1, LL_HRTIM_TIMER_B);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -369,13 +373,22 @@ int main(void)
     motor_speed += (motor_speed_new - motor_speed) * 0.03f;
 
     // move encoder info to FOC struct
-    // __disable_irq();
+    __disable_irq();
     FOC->motor_PhysPosition = motor_PhysPosition;
     FOC->motor_lastMeasTime = motor_lastMeasTime;
     FOC->motor_speed = motor_speed;
-    // __enable_irq();
+    FOC->U_current = (adc_data[0] - adc_os[0]) * 0.075f;
+    FOC->V_current = (adc_data[1] - adc_os[1]) * 0.075f;
+    FOC->W_current = (adc_data[2] - adc_os[2]) * 0.075f;
+    // Flush pipeline
+    __ASM("nop");
+    __ASM("nop");
+    __ASM("nop");
+    __ASM("nop");
+    __ASM("nop");
+    __enable_irq();
 
-    FOC_update(FOC);
+    // FOC_update(FOC);
 
     if (sendCANBus_flag != 0){
       if (HAL_FDCAN_GetTxFifoFreeLevel(&hfdcan2) != 0){
@@ -412,9 +425,9 @@ int main(void)
           case 1:
             TxHeader.Identifier = CAN_DEBUG_ID;
             TxHeader.DataLength = FDCAN_DLC_BYTES_8;
-            int16_t temp = FOC->Encoder_os;
+            int16_t temp = FOC->cmd_q * 100.0f;
             memcpy(&TxData[0], &temp, 2);
-            temp = FOC->temp_it;
+            temp = FOC->cmd_d * 100.0f;
             memcpy(&TxData[2], &temp, 2);
             temp = FOC->motor_ElecPosition * 10000.0f;
             memcpy(&TxData[4], &temp, 2);
@@ -443,7 +456,7 @@ int main(void)
     // sprintf(printBuffer, "U: %6ld, V: %6ld, W: %6ld, I_d: %.03f, cmd_d: %.03f, I_q: %.03f, cmd_q: %.03f\n", duty_u, duty_v, duty_w, I_d, cmd_d, I_q, cmd_q);
     // printCANBus(printBuffer);
     // LL_mDelay(50);
-    while (TIM2->CNT - micros < 33); // AMK encoder sample rate limit
+    while (TIM2->CNT - micros < 50); // AMK encoder sample rate limit
     lastMicros = micros;
   }
   /* USER CODE END 3 */
@@ -590,6 +603,7 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
         disableGateDriver();
       }
       else {
+        LL_TIM_SetCounter(TIM6, 0); // reset drive-enable timeout counter
         if ((LL_GPIO_ReadInputPort(GPIOC) & LL_GPIO_PIN_12) == 0) {
           resetGateDriver();
         }

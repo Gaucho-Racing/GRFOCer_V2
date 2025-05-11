@@ -25,13 +25,10 @@ volatile const uint8_t SVPWM_PermuataionMatrix[6][3] = {
 void FOC_update(volatile FOC_data* self) {
     LL_GPIO_SetOutputPin(GPIOC, LL_GPIO_PIN_0);
     // FOC
-    self->U_current = (adc_data[0] - adc_os[0]) * 0.075f;
-    self->V_current = (adc_data[1] - adc_os[1]) * 0.075f;
-    self->W_current = (adc_data[2] - adc_os[2]) * 0.075f;
     self->temp_it = self->motor_PhysPosition + self->Encoder_os;
     // compensate for the time delay if motor speed is high
     if (fabsf(self->motor_speed) > ((300.0f/60.0f)*1e-6f*N_STEP_ENCODER * 0.02f)){
-        self->temp_it += (TIM2->CNT - self->motor_lastMeasTime + (13 << self->F_sw))*self->motor_speed;
+        self->temp_it += (TIM2->CNT - self->motor_lastMeasTime + (25 << self->F_sw))*self->motor_speed;
     }
     self->temp_it *= N_POLES;
     self->temp_it %= N_STEP_ENCODER;

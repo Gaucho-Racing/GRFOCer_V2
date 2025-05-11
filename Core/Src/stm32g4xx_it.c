@@ -55,7 +55,7 @@ uint8_t TxDataIT[8];
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN PFP */
-
+extern void disableGateDriver();
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -221,20 +221,26 @@ void SPI1_IRQHandler(void)
 {
   /* USER CODE BEGIN SPI1_IRQn 0 */
   LL_GPIO_SetOutputPin(GPIOC, LL_GPIO_PIN_1);
-  x = LL_SPI_ReceiveData16(SPI1);
+  x = SPI1->DR;//LL_SPI_ReceiveData16(SPI1);
   switch (SPI_WaitState)
   {
   case 0: // prepare to recieve 32 bits
-    motor_lastMeasTime2 = TIM2->CNT - 4;
     ENDAT_DIR_Read;
-    LL_SPI_Disable(SPI1);
-    LL_SPI_SetDataWidth(SPI1, LL_SPI_DATAWIDTH_16BIT);
-    LL_SPI_SetTransferBitOrder(SPI1, LL_SPI_LSB_FIRST);
-    LL_SPI_SetClockPhase(SPI1, LL_SPI_PHASE_1EDGE);
-    LL_SPI_Enable(SPI1);
-    LL_SPI_TransmitData16(SPI1, 0U);
-    LL_SPI_TransmitData16(SPI1, 0U);
+    // LL_SPI_Disable(SPI1);
+    SPI1->CR1 &= ~SPI_CR1_SPE; // disable SPI
+    // LL_SPI_SetDataWidth(SPI1, LL_SPI_DATAWIDTH_16BIT);
+    // LL_SPI_SetTransferBitOrder(SPI1, LL_SPI_LSB_FIRST);
+    // LL_SPI_SetClockPhase(SPI1, LL_SPI_PHASE_1EDGE);
+    SPI1->CR1 |= SPI_CR1_LSBFIRST | SPI_CR1_CPHA; // LSB first, CPHA = 1
+    SPI1->CR2 |= SPI_CR2_DS_0 | SPI_CR2_DS_1 | SPI_CR2_DS_2 | SPI_CR2_DS_3; // 16 bits
+    // LL_SPI_Enable(SPI1);
+    SPI1->CR1 |= SPI_CR1_SPE; // enable SPI
+    // LL_SPI_TransmitData16(SPI1, 0U);
+    // LL_SPI_TransmitData16(SPI1, 0U);
+    SPI1->DR = 0U; // send dummy data
+    SPI1->DR = 0U; // send dummy data
     SPI_WaitState = 1;
+    motor_lastMeasTime2 = TIM2->CNT - 5;
     break;
   case 1: // first 16 bits done
     SPI_buf |= x;
@@ -253,6 +259,21 @@ void SPI1_IRQHandler(void)
   /* USER CODE BEGIN SPI1_IRQn 1 */
   LL_GPIO_ResetOutputPin(GPIOC, LL_GPIO_PIN_1);
   /* USER CODE END SPI1_IRQn 1 */
+}
+
+/**
+  * @brief This function handles TIM6 global interrupt, DAC1 and DAC3 channel underrun error interrupts.
+  */
+void TIM6_DAC_IRQHandler(void)
+{
+  /* USER CODE BEGIN TIM6_DAC_IRQn 0 */
+  LL_TIM_ClearFlag_UPDATE(TIM6);
+  disableGateDriver();
+  /* USER CODE END TIM6_DAC_IRQn 0 */
+
+  /* USER CODE BEGIN TIM6_DAC_IRQn 1 */
+
+  /* USER CODE END TIM6_DAC_IRQn 1 */
 }
 
 /**
@@ -278,7 +299,7 @@ void HRTIM1_TIMB_IRQHandler(void)
   /* USER CODE BEGIN HRTIM1_TIMB_IRQn 0 */
   LL_HRTIM_ClearFlag_UPDATE(HRTIM1, LL_HRTIM_TIMER_B);
   
-  // FOC_update(FOC);
+  FOC_update(FOC);
 
   
   /* USER CODE END HRTIM1_TIMB_IRQn 0 */
