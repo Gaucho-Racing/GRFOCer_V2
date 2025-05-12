@@ -42,8 +42,8 @@
 // FOC constants
 #define MAX_CMD_D 0.5f
 #define MIN_CMD_D -0.5f
-#define MAX_CMD_Q 1.4f
-#define MIN_CMD_Q -1.4f
+#define MAX_CMD_Q 1.7f
+#define MIN_CMD_Q -1.7f
 
 // CANBus receive IDs
 #define CAN_CMD_ID 0x201708UL

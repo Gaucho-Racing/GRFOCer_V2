@@ -28,7 +28,7 @@ void FOC_update(volatile FOC_data* self) {
     self->temp_it = self->motor_PhysPosition + self->Encoder_os;
     // compensate for the time delay if motor speed is high
     if (fabsf(self->motor_speed) > ((300.0f/60.0f)*1e-6f*N_STEP_ENCODER * 0.02f)){
-        self->temp_it += (TIM2->CNT - self->motor_lastMeasTime + (25 << self->F_sw))*self->motor_speed;
+        self->temp_it += (TIM2->CNT - self->motor_lastMeasTime + (38 << self->F_sw))*self->motor_speed;
     }
     self->temp_it *= N_POLES;
     self->temp_it %= N_STEP_ENCODER;
