@@ -111,6 +111,8 @@ volatile int32_t dt_i = 50; // microseconds
 // CANBus stuff
 volatile uint8_t sendCANBus_flag = 0;
 
+volatile bool init_complete = false;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -286,6 +288,10 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+  
+  // CRC-Check: (original_msg) modulo-2 division (crc-bits), if remainder = 0, then valid
+
+  init_complete = true;
   while (1)
   {
     micros = TIM2->CNT;
@@ -310,9 +316,13 @@ int main(void)
     LL_SPI_SetTransferBitOrder(SPI1, LL_SPI_MSB_FIRST);
     LL_SPI_SetClockPhase(SPI1, LL_SPI_PHASE_2EDGE);
     LL_SPI_Enable(SPI1);
+
+    __disable_irq(); // adding this just in case, feel free to delete - Rachel
     SPI_Wait = true;
     SPI_WaitState = 0;
     SPI_buf = 0;
+    __enable_irq();
+
     LL_SPI_TransmitData16(SPI1, 28U); // send mode 1 (0b0000011100): Encoder send position values
     #endif
 
@@ -356,10 +366,10 @@ int main(void)
       SPI_buf = SPI_buf >> 1;
       shiftAmount++;
     }
-    // __disable_irq();
+    __disable_irq();
     motor_PhysPosition = (SPI_buf >> 4) & (N_STEP_ENCODER-1);
     motor_lastMeasTime = motor_lastMeasTime2;
-    // __enable_irq();
+    __enable_irq();
     #endif
 
     // calculate motor speed
@@ -370,7 +380,7 @@ int main(void)
       motor_PhysPositionDiff += N_STEP_ENCODER;
     }
     float motor_speed_new = (float)motor_PhysPositionDiff / (float)(motor_lastMeasTime - motor_last2MeasTime);
-    motor_speed += (motor_speed_new - motor_speed) * 0.03f;
+    motor_speed += (motor_speed_new - motor_speed) * 0.01f;
 
     // move encoder info to FOC struct
     __disable_irq();
@@ -389,7 +399,6 @@ int main(void)
     __enable_irq();
 
     // FOC_update(FOC);
-
     if (sendCANBus_flag != 0){
       if (HAL_FDCAN_GetTxFifoFreeLevel(&hfdcan2) != 0){
         switch (sendCANBus_flag) {
@@ -604,7 +613,7 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
       }
       else {
         LL_TIM_SetCounter(TIM6, 0); // reset drive-enable timeout counter
-        if ((LL_GPIO_ReadInputPort(GPIOC) & LL_GPIO_PIN_12) == 0) {
+        if ((LL_GPIO_ReadInputPort(GPIOC) & LL_GPIO_PIN_12) == 0 && init_complete) {
           resetGateDriver();
         }
       }

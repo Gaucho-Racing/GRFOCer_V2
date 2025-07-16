@@ -24,11 +24,13 @@ typedef struct {
     volatile float motor_speed;
     volatile uint32_t F_sw;
     volatile int32_t motor_PhysPosition;
-    volatile float motor_ElecPosition;
+    volatile float motor_ElecPosition, motor_ElecPosition_next;
     volatile int32_t Encoder_os;
     volatile uint32_t motor_lastMeasTime;
 
+    volatile int32_t temp_it, temp_it_next;
     volatile float sin_elec_position, cos_elec_position;
+    volatile float sin_elec_position_next, cos_elec_position_next;
     volatile float I_a, I_b, I_q, I_d;
     volatile float I_q_avg, I_d_avg;
     volatile float cmd_q, cmd_d;
@@ -49,9 +51,6 @@ typedef struct {
 
     // Output variables
     volatile float duty_u, duty_v, duty_w;
-
-    // debug stuff
-    volatile int32_t temp_it;
 
     // Pad RAM
     volatile uint32_t pad2[64];

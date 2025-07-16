@@ -258,6 +258,11 @@ void SPI1_IRQHandler(void)
   /* USER CODE END SPI1_IRQn 0 */
   /* USER CODE BEGIN SPI1_IRQn 1 */
   LL_GPIO_ResetOutputPin(GPIOC, LL_GPIO_PIN_1);
+  __ASM("nop");
+  __ASM("nop");
+  __ASM("nop");
+  __ASM("nop");
+  __ASM("nop");
   /* USER CODE END SPI1_IRQn 1 */
 }
 
